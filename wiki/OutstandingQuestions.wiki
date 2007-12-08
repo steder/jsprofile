@@ -11,7 +11,7 @@ Open implementation questions.
 In Firefox, functions and variable declared in the default scope are accessible by enumerating the properties of the `window` object. However, this is not the case for IE (see 
 http://groups.google.com/group/comp.lang.javascript/browse_thread/thread/6f97f69139a1fee5). My current workaround idea involves:
   # Getting the `<script>` content, using AJAX if necessary when the content is externally referenced via the `src` attribute.
-  # Parsing it using Narcissus (http://lxr.mozilla.org/mozilla/source/js/narcissus/)
+  # ~~Parsing it using Narcissus (http://lxr.mozilla.org/mozilla/source/js/narcissus/)~~ Narcissus is way too slow for us. Use a custom parser to quickly determine possible variable and function names.
   # Get the nested functions by drilling down from the `window`-scoped objects.
 
 == Getting Dynamically Created Functions ==
