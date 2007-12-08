@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+
+<html>
+
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>JSProfile Tests</title>
+<link rel="stylesheet" type="text/css" href="../css/jsUnitStyle.css">
+<script language="JavaScript" type="text/javascript" src="../jsunit/app/jsUnitCore.js"></script>
+<script language="JavaScript" type="text/javascript" src="../tools.js"></script>
+<script language="JavaScript" type="text/javascript" src="../narcissus-defs.js"></script>
+<script language="JavaScript" type="text/javascript" src="../narcissus-parse.js"></script>
+<script language="JavaScript" type="text/javascript" src="../jsprofile.js"></script>
+<script language="JavaScript" type="text/javascript">
+
+
+
+function testDecimalRound()
+{
+    assertEquals(6, decimalRound(5.5432, 0));
+    assertEquals(5.5, decimalRound(5.5432, 1));
+    assertEquals(5.54, decimalRound(5.5432, 2));
+    assertEquals(5.43, decimalRound('5.432', 2));
+    assertEquals(5, decimalRound(5, 2));
+}
+
+
+
+function testProfiler__lazyParse()
+{
+    var profiler = new Profiler();
+
+    // simple test
+    var scriptContent = 'function f() { return 1; }; var v = 2;';
+    var referenceObject = [ 'f', 'v' ];
+    assertTrue(are_equal(
+        referenceObject, profiler._lazyParse(scriptContent)));
+        
+    scriptContent += 'var o = { foo: "bar", baz: "qux" };';
+    scriptContent += 'function f2() { this._f = function() { return 3; }; }';
+    referenceObject = [ '_f', 'f', 'f2', 'o', 'v' ];
+    assertTrue(are_equal(
+        referenceObject, profiler._lazyParse(scriptContent)));
+}
+
+
+
+function testProfiler__getFunctionTuples()
+{
+    var profiler = new Profiler();
+    
+    // simple test
+    var object = {
+        f1  : function() { return 1; }
+        , f2: function() { return 2; }
+    };
+    profiler._getFunctionTuples(object);
+    assertTrue(are_equal(
+        [ [ 'f1', object ], [ 'f2', object ] ], 
+        profiler.functionTuples
+    ));
+    
+    // nested object test
+    object.o1 = {
+        f3: function() { return 3; }
+    };
+    profiler._getFunctionTuples(object);
+    assertTrue(are_equal(
+        [ [ 'f1', object ], [ 'f2', object ], [ 'f3', object.o1 ] ], 
+        profiler.functionTuples
+    ));
+    
+    // test circularly linked objects and duplicate references
+    object.o2 = object;
+    object.f4 = object.f1;
+    profiler._getFunctionTuples(object);
+    assertTrue(are_equal(
+        [ [ 'f1', object ], [ 'f2', object ], [ 'f3', object.o1 ] ], 
+        profiler.functionTuples, 3
+    )); // specified max depth to avoid infinite recursion
+    
+    // test excluded objects aren't included
+    profiler.excludedObjects = [ object.o1 ];
+    profiler._getFunctionTuples(object);
+    assertTrue(are_equal(
+        [ [ 'f1', object ], [ 'f2', object ] ], 
+        profiler.functionTuples, 3
+    ));
+}
+
+
+
+function testProfiler__decorateFunction()
+{
+    var profiler = new Profiler();
+
+    // test function is decorated, and original function is preserved
+    var object = {
+        f1: function() { return 1; }
+    };
+    profiler._decorateFunction('f1', object);
+    assertTrue(/_enterProfile/.test(object.f1));
+    assertTrue(/_exitProfile/.test(object.f1));
+    assertTrue(/return 1;/.test(object.f1.originalFunction));
+}
+
+
+
+function testProfiler__undecorateFunction()
+{
+    var profiler = new Profiler();
+
+    // test undecorated function is original
+    var object = {
+        f1: function() { return 1; }
+    };
+    profiler._decorateFunction('f1', object);
+    profiler._undecorateFunction('f1', object);
+    assertFalse(/_enterProfile/.test(object.f1));
+    assertFalse(/_exitProfile/.test(object.f1));
+    assertUndefined(object.f1.originalFunction);
+    assertTrue(/return 1;/.test(object.f1));
+}
+
+
+
+function testProfiler__decorateAllFunctions()
+{
+    var profiler = new Profiler();
+    
+    // test profile data capture
+    var object = {
+        f1: function() {
+            var z = 0;
+            for (var i = 0; i < 50; ++i) {
+                z += this.f2(i);
+            }
+            return z;
+        }
+        , f2: function(n) {
+            return parseInt(n * 1.2);
+        }
+    };
+    profiler._decorateAllFunctions(object);
+    
+    assertNotUndefined(object.f1.originalFunction);
+    assertNotUndefined(object.f2.originalFunction);
+    assertTrue(profiler.functionsAreDecorated);
+}
+
+
+
+function testProfiler_getProfileData()
+{
+    var profiler = new Profiler();
+    
+    // test profile data capture
+    var object = {
+        f1: function() {
+            var z = 0;
+            for (var i = 0; i < 50; ++i) {
+                z += this.f2(i);
+            }
+            return z;
+        }
+        , f2: function(n) {
+            return parseInt(n * 1.2);
+        }
+    };
+    profiler._decorateAllFunctions(object);
+    profiler._setState(Profiler.STATE_RUNNING);    // twiddle state
+    var z = 0;
+    for (var i = 0; i < 100; ++i) {
+        z += object.f1();
+    }
+    profiler._undecorateAllFunctions(object);
+    
+    var profileData = profiler.getProfileData();
+    //alert(print_r(profiler.profileData));
+    var f1ProfileData = profileData[0];
+    var f2ProfileData = profileData[1];
+    
+    assertEquals('f1', f1ProfileData.forFunction);
+    assertEquals(100, f1ProfileData.callCount);
+    assertTrue(f1ProfileData.nonOwnTime > 0);
+    assertTrue(f1ProfileData.ownTime > 0);
+    assertTrue(f1ProfileData.totalTime > f1ProfileData.ownTime);
+    assertTrue(f1ProfileData.averageOwnTime > 0);
+    assertTrue(f1ProfileData.averageTime > f1ProfileData.averageOwnTime);
+    
+    assertEquals('f2', f2ProfileData.forFunction);
+    assertEquals(5000, f2ProfileData.callCount);
+    assertTrue(f2ProfileData.nonOwnTime == 0);
+    assertTrue(f2ProfileData.ownTime > 0);
+    assertTrue(f2ProfileData.totalTime == f2ProfileData.ownTime);
+    assertTrue(f2ProfileData.averageOwnTime > 0);
+    assertTrue(f2ProfileData.averageTime == f2ProfileData.averageOwnTime);
+}
+
+</script>
+</head>
+
+<body>
+<h1>JSProfile Tests</h1>
+<p>This page contains tests for jsProfile. To see them, take a look at the source.</p>
+</body>
+
+</html>
