@@ -312,6 +312,7 @@ function isIE()
 }
 
 
+
 function isNativeCode(object)
 {
     return (object + "").indexOf('[native code]') != -1
@@ -755,14 +756,13 @@ function Profiler()
             parentObject = window;
         }
         
-        //var pre = document.getElementById('pre');
-        
         this._getFunctionTuples(parentObject, variableNames);
         for (var i = 0; i < this.functionTuples.length; ++i) {
             var functionName = this.functionTuples[i][0];
             var parentObject = this.functionTuples[i][1];
             this._decorateFunction(functionName, parentObject);
-            //pre.appendChild(document.createTextNode(functionName + "\r\n"))
+            this.logger.debug('Decorated function ' + functionName
+                + ' for object ' + parentObject);
         }
         
         this.functionsAreDecorated = true;
@@ -781,6 +781,9 @@ function Profiler()
             var functionName = this.functionTuples[i][0];
             var parentObject = this.functionTuples[i][1];
             this._undecorateFunction(functionName, parentObject);
+            this.logger.debug('Undecorated function ' + functionName
+                + ' for object ' + parentObject);
+
         }
         this.functionTuples = [];
         
@@ -949,6 +952,46 @@ function DefaultProfilerView(parentId)
         }
         
         var profileData = this.profiler.getProfileData();
+        var sortFn;
+        switch(this.sortByColumn) {
+            case 'Function Name':
+                sortFn = function(a, b) {
+                    var uc_a = a.forFunction.toUpperCase();
+                    var uc_b = b.forFunction.toUpperCase();
+                    if (uc_a > uc_b) {
+                        return 1;
+                    }
+                    if (uc_a < uc_b) {
+                        return -1;
+                    }
+                    return 0;
+                };
+                break;
+            case 'Call Count':
+                sortFn = function(a, b) { return b.callCount - a.callCount; };
+                break;
+            case 'Total Time':
+                sortFn = function(a, b) { return b.totalTime - a.totalTime; };
+                break;
+            case 'Non-Own Time':
+                sortFn = function(a, b) { return b.nonOwnTime - a.nonOwnTime; };
+                break;
+            case 'Own Time':
+                sortFn = function(a, b) { return b.ownTime - a.ownTime; };
+                break;
+            case 'Average Time':
+                sortFn = function(a, b) {
+                    return b.averageTime - a.averageTime;
+                };
+                break;
+            case 'Average Own Time':
+                sortFn = function(a, b) {
+                    return b.averageOwnTime - a.averageOwnTime;
+                };
+                break;
+        }
+        profileData.sort(sortFn);
+        
         for (var i = 0; i < profileData.length; ++i) {
             var result = profileData[i];
             var resultRow = DOMBuilder.TR([
@@ -1110,12 +1153,17 @@ function DefaultProfilerView(parentId)
      * @param dateObject
      */
     this._getTimestamp = function(dateObject) {
+        var month = dateObject.getMonth() + 1;
+        var date = dateObject.getDate();
+        var hours = dateObject.getHours();
+        var minutes = dateObject.getMinutes();
+        var seconds = dateObject.getSeconds();
         return dateObject.getFullYear()
-            + '-' + (dateObject.getMonth() + 1)
-            + '-' + dateObject.getDate()
-            + ' ' + dateObject.getHours()
-            + ':' + dateObject.getMinutes()
-            + ':' + dateObject.getSeconds();
+            + '-' + (month   < 10 ? '0' + month   : month)
+            + '-' + (date    < 10 ? '0' + date    : date)
+            + ' ' + (hours   < 10 ? '0' + hours   : hours)
+            + ':' + (minutes < 10 ? '0' + minutes : minutes)
+            + ':' + (seconds < 10 ? '0' + seconds : seconds);
     };
     
     /**
@@ -1128,6 +1176,7 @@ function DefaultProfilerView(parentId)
         this.log = [];
         this.logCursor = 0;
         this.logLevel = DefaultProfilerView.LOGLEVEL_WARN;
+        this.sortByColumn = 'Own Time';
         
         var self = this;
         
@@ -1196,7 +1245,14 @@ function DefaultProfilerView(parentId)
             , 'Own Time'
             , 'Average Time'
             , 'Average Own Time' ]
-            , { border: 'solid 1px #cdc' }, 'th');
+            , { border: 'solid 1px #cdc', cursor: 'pointer' }, 'th');
+        var headers = resultsHeader.childNodes;
+        for (var i = 0; i < headers.length; ++i) {
+            headers[i].onclick = function() {
+                self.sortByColumn = this.innerText || this.textContent;
+                self.updateResults();
+            };
+        }
         resultsTbody.appendChild(resultsHeader);
         resultsTable.appendChild(resultsTbody);
         resultsTable.style.marginTop = '.5em';
