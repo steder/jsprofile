@@ -780,6 +780,7 @@ function Profiler()
             profiler._exitProfile(id);
             return retval;
         };
+        decorator.prototype = originalFunction.prototype;
         decorator.originalFunction = originalFunction;
         parentObject[functionName] = decorator;
     };
