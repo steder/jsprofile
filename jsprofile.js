@@ -1,3 +1,5 @@
+// TODO - investigate hijacking of "ctx.clone"
+
 //******************************************************************************
 // Tools
 
@@ -313,19 +315,27 @@ function isIE()
 
 
 
-function isNativeCode(object)
+function isOpera()
 {
-    return (object + "").indexOf('[native code]') != -1
+    return window.opera != undefined;
 }
 
 
 
 /**
- * IE data transfer objects seem to be special.
+ * Identifies special IE objects that should not be treated as typical objects.
  */
-function isDataTransferObject(object)
+function isSpecialIEObject(object)
 {
-    return object.dropEffect && object.effectAllowed;
+    try {
+        if (object.length && object[0].dataFormatAs != undefined) {
+            // this particular type of object is self-referential and will hose
+            // any recursive object traversal
+            return true;
+        }
+    }
+    catch (e) { }
+    return false;
 }
 
 
@@ -340,14 +350,19 @@ function isNsIObject(object)
 
 
 
+/**
+ * DOM node?
+ */
 function isDOMObject(object)
 {
-    try {
-        return object.ownerDocument == document;
-    }
-    catch (e) {
-        return false;
-    }
+    return object.ownerDocument != undefined;
+}
+
+
+
+function isNativeCode(object)
+{
+    return (object + "").indexOf('[native code]') != -1
 }
 
 
@@ -404,17 +419,17 @@ function Profiler()
     this.start = function() {
         if (this.getState() == Profiler.STATE_NEW) {
             this._setState(Profiler.STATE_INITIALIZING);
-            var profiler = this;
-            if (isIE()) {
+            var self = this;
+            if (isIE() || isOpera()) {
                 // IE, so we need to parse the scripts manually. We get the
                 // script contents using AJAX; thus for this to work they
                 // probably must be on a webserver, i.e. not accessed via the
                 // file:// protocol.
                 var variableNames = [];
-                var scriptLoader = new ScriptLoader(function(scriptContents) {
+                var callback = function(scriptContents) {
                     for (var i = 0; i < scriptContents.length; ++i) {
                         var possibleNames =
-                            profiler._lazyParse(scriptContents[i]);
+                            self._lazyParse(scriptContents[i]);
                         for (var j = 0; j < possibleNames.length; ++j) {
                             var possibleName = possibleNames[j];
                             if (window[possibleName]) {
@@ -422,18 +437,28 @@ function Profiler()
                             }
                         }
                     }
+                    self.logger.debug('Found window-scoped variables: '
+                        + variableNames.join(', '));
                     setTimeout(function() {
-                        profiler._decorateAllFunctions(window, variableNames);
-                        profiler._setState(Profiler.STATE_RUNNING);
+                        self._decorateAllFunctions(window, variableNames);
+                        self._setState(Profiler.STATE_RUNNING);
                     }, 1);
-                });
+                };
+                try {
+                    scriptLoader = new ScriptLoader(callback);
+                }
+                catch (e) {
+                    this.logger.error('Could not load scripts: '
+                        + (e.message ? e.message : e));
+                    this._setState(Profiler.STATE_NEW);
+                }
             }
             else {
                 // wait a split second to allow the previous state update to
                 // propagate
                 setTimeout(function() {
-                    profiler._decorateAllFunctions();
-                    profiler._setState(Profiler.STATE_RUNNING);
+                    self._decorateAllFunctions();
+                    self._setState(Profiler.STATE_RUNNING);
                 }, 1);
             }
         }
@@ -602,13 +627,16 @@ function Profiler()
      */
     this._getFunctionTuples = function(parentObject, variableNames) {
         var objectQueue = [ parentObject ];
-        var excludedObjects = this.excludedObjects;
-        var excludedFunctions = this.excludedFunctions;
+        var excludedObjects = [ null, undefined ].concat(this.excludedObjects);
+        var excludedFunctions = [ null, undefined ]
+            .concat(this.excludedFunctions);
         var markedObjects = [];
+        var unmarkableObjects = [];
         
         this.functionTuples = [];
         
-        while (objectQueue.length) {
+        queueLoop:
+        while (objectQueue.length > 0) {
             // perform non-recursive, breadth-first iteration
             var object = objectQueue.shift();
             var props = [];
@@ -628,7 +656,6 @@ function Profiler()
                     continue;
                 }
             }
-            
             try {
                 objectLoop:
                 for (var i = 0; i < props.length; ++i) {
@@ -643,15 +670,41 @@ function Profiler()
                         continue;
                     }
                     var childObject = object[prop];
+                    
+                    // no brainer
+                    if (childObject == object) {
+                        continue;
+                    }
                     // don't include objects and functions we've already seen
                     if (childObject.markedAsAlreadySeen) {
                         continue;
                     }
                     switch (typeof(childObject)) {
                         case 'object':
+                            // don't include DOM objects
+                            if (isDOMObject(childObject)) {
+                                this.logger.debug('Skipping DOM object: '
+                                    + prop);
+                                continue;
+                            }
+                            // don't include special IE objects
+                            if (isSpecialIEObject(childObject)) {
+                                this.logger.debug('Skipping special IE object: '
+                                    + prop);
+                                continue;
+                            }
                             // don't include nsI objects
                             if (isNsIObject(childObject)) {
+                                this.logger.debug('Skipping nsI object: '
+                                    + prop);
                                 continue;
+                            }
+                            // don't include objects that should have been
+                            // marked, but weren't allowed to be
+                            for (var j = 0; j < unmarkableObjects.length; ++j) {
+                                if (childObject == unmarkableObjects[j]) {
+                                    continue objectLoop;
+                                }
                             }
                             // don't traverse objects that are explicitly
                             // excluded
@@ -661,12 +714,22 @@ function Profiler()
                                 }
                             }
                             objectQueue.push(childObject);
-                            childObject.markedAsAlreadySeen = true;
-                            markedObjects.push(childObject);
+                            try {
+                                childObject.markedAsAlreadySeen = true;
+                                markedObjects.push(childObject);
+                            }
+                            catch (e) {
+                                this.logger.debug('Could not mark object '
+                                    + prop + ' as already seen: '
+                                    + (e.message ? e.message : e));
+                                unmarkableObjects.push(childObject);
+                            }
                             break;
                         case 'function':
                             // don't include native functions
                             if (isNativeCode(childObject)) {
+                                this.logger.debug('Skipping native function: '
+                                    + prop);
                                 continue objectLoop;
                             }
                             // don't include functions that are explicitly
@@ -684,17 +747,14 @@ function Profiler()
                 }
             }
             catch (e) {
-                // "Object doesn't support this action" (IE6)
-                var msg = e.toString();
-                if (!/InternalError: too much recursion/.test(msg) &&
-                    !/Permission denied to get property/.test(msg) &&
-                    !/Permission denied to call method/ .test(msg) &&
-                    e.message != 'Security error') {
-                    this.logger.debug('Caught exception when finding functions '
-                        + 'for object ' + object + ': '
-                        + (e.message ? e.message : e));
-                }
-                this.logger.info('Caught exception when finding functions '
+                // types of spurious exceptions we catch here:
+                //
+                // "Object doesn't support this action"
+                // "Permission denied to get property"
+                // "Permission denied to call method"
+                // "Security error"
+                // "InternalError: too much recursion"
+                this.logger.debug('Caught exception when finding functions '
                     + 'for object ' + object + ': '
                     + (e.message ? e.message : e));
             }
@@ -703,7 +763,7 @@ function Profiler()
         for (var i = 0; i < markedObjects.length; ++i) {
             markedObjects[i].markedAsAlreadySeen = undefined;
         }
-    }
+    };
     
     /**
      * Decorates a function to be profiled, preserving the original function so
