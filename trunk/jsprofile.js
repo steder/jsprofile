@@ -820,7 +820,7 @@ function Profiler()
             var functionName = this.functionTuples[i][0];
             var parentObject = this.functionTuples[i][1];
             this._decorateFunction(functionName, parentObject);
-            this.logger.debug('Decorated function ' + functionName
+            this.logger.info('Decorated function ' + functionName
                 + ' for object ' + parentObject);
         }
         
@@ -840,7 +840,7 @@ function Profiler()
             var functionName = this.functionTuples[i][0];
             var parentObject = this.functionTuples[i][1];
             this._undecorateFunction(functionName, parentObject);
-            this.logger.debug('Undecorated function ' + functionName
+            this.logger.info('Undecorated function ' + functionName
                 + ' for object ' + parentObject);
 
         }
@@ -1098,7 +1098,7 @@ function DefaultProfilerView(parentId)
                 var logEntry = this.log[this.logCursor];
                 var logItem = DOMBuilder.LI(
                     this._getTimestamp(logEntry[1])
-                    + ' ' + DefaultProfilerView.LOGLEVEL_MAP[logEntry[0]]
+                    + ' ' + DefaultProfilerView.LOGLEVEL_LABELMAP[logEntry[0]]
                     + ' - ' + logEntry[2]);
                 logItem.logLevel = logEntry[0];
                 if (logItem.logLevel <= this.logLevel) {
@@ -1294,6 +1294,25 @@ function DefaultProfilerView(parentId)
         };
         clearLogButton.style.width = '7em';
         
+        var logLevelSelect = document.createElement('select');
+        logLevelSelect.className = 'profiler-log-level-select';
+        logLevelSelect.id = 'theSelect';
+        logLevelSelect.onchange = function() {
+            self.setLogLevel(DefaultProfilerView
+                .LOGLEVEL_VALUEMAP[this.value]);
+        }
+        var i = 0;
+        for (var label in DefaultProfilerView.LOGLEVEL_VALUEMAP) {
+            var logLevelOption = document.createElement('option');
+            logLevelOption.value = label;
+            logLevelOption.appendChild(document.createTextNode(label));
+            logLevelSelect.appendChild(logLevelOption);
+            if (label == 'WARN') {
+                logLevelSelect.selectedIndex = i;
+            }
+            ++i;
+        }
+        
         var resultsTable = document.createElement('table');
         var resultsTbody = document.createElement('tbody');
         var resultsHeader = DOMBuilder.TR([
@@ -1336,6 +1355,7 @@ function DefaultProfilerView(parentId)
         viewBox.appendChild(showHideResultsButton);
         viewBox.appendChild(showHideLogButton);
         viewBox.appendChild(clearLogButton);
+        viewBox.appendChild(logLevelSelect);
         viewBox.appendChild(resultsTable);
         viewBox.appendChild(logList);
         var parentElement = document.getElementById(parentId);
@@ -1347,6 +1367,7 @@ function DefaultProfilerView(parentId)
         this.startStopButton = startStopButton;
         this.resetButton = resetButton;
         this.showHideResultsButton = showHideResultsButton;
+        this.logLevelSelect = logLevelSelect;
         this.showHideLogButton = showHideLogButton;
         this.clearLogButton = clearLogButton;
         this.resultsTable = resultsTable;
@@ -1370,12 +1391,19 @@ DefaultProfilerView.LOGLEVEL_INFO  = 3;
 DefaultProfilerView.LOGLEVEL_WARN  = 2;
 DefaultProfilerView.LOGLEVEL_ERROR = 1;
 DefaultProfilerView.LOGLEVEL_FATAL = 0;
-DefaultProfilerView.LOGLEVEL_MAP = {
+DefaultProfilerView.LOGLEVEL_LABELMAP = {
     4  : 'DEBUG'
     , 3: 'INFO'
     , 2: 'WARN'
     , 1: 'ERROR'
     , 0: 'FATAL'
+};
+DefaultProfilerView.LOGLEVEL_VALUEMAP = {
+    'DEBUG'  : 4
+    , 'INFO' : 3
+    , 'WARN' : 2
+    , 'ERROR': 1
+    , 'FATAL': 0
 };
 
 
