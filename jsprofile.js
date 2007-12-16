@@ -1183,9 +1183,7 @@ function DefaultProfilerView(parentId)
     
     this.setLogLevel = function(newLevel) {
         this.logLevel = newLevel;
-        if (this.isLogShowing()) {
-            this.updateLog(true);
-        }
+        this.updateLog(true);
     };
     
     /**
