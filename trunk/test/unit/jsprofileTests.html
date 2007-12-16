@@ -11,7 +11,7 @@
 <script language="JavaScript" type="text/javascript">
 
 
-
+/*
 function testDecimalRound()
 {
     assertEquals(6, decimalRound(5.5432, 0));
@@ -83,6 +83,18 @@ function testProfiler__getFunctionTuples()
         [ [ 'f1', object ], [ 'f2', object ] ], 
         profiler.functionTuples, 3
     ));
+    
+    // test prototype functions
+    function SomeObject() {
+        this.value = 5;
+    }
+    SomeObject.prototype.f5 = function() { return 5; };
+    object.o3 = new SomeObject();
+    profiler._getFunctionTuples(object);
+    assertTrue(are_equal(
+        [ [ 'f1', object ], [ 'f2', object ], [ 'f5', SomeObject.prototype ] ], 
+        profiler.functionTuples, 3
+    ));
 }
 
 
@@ -144,14 +156,17 @@ function testProfiler__decorateAllFunctions()
     assertNotUndefined(object.f2.originalFunction);
     assertTrue(profiler.functionsAreDecorated);
 }
-
+*/
 
 
 function testProfiler_getProfileData()
 {
     var profiler = new Profiler();
     
-    // test profile data capture
+    // test profile data capture. A special case we test is for profile data
+    // to be captured for functions on an object's prototype, even if the
+    // instance of the object is created after the function has been decorated
+    // for profiling.
     var object = {
         f1: function() {
             var z = 0;
@@ -163,19 +178,24 @@ function testProfiler_getProfileData()
         , f2: function(n) {
             return parseInt(n * 1.2);
         }
+        , SomeObject: function() {}
     };
+    object.SomeObject.prototype.f3 = function(n) { return n % 2; };
     profiler._decorateAllFunctions(object);
     profiler._setState(Profiler.STATE_RUNNING);    // twiddle state
+    object.o1 = new object.SomeObject();
     var z = 0;
     for (var i = 0; i < 100; ++i) {
-        z += object.f1();
+        z += object.f1() + object.o1.f3(i);
     }
     profiler._undecorateAllFunctions(object);
     
     var profileData = profiler.getProfileData();
-    //alert(print_r(profiler.profileData));
+    //alert(print_r(profileData));
     var f1ProfileData = profileData[0];
     var f2ProfileData = profileData[1];
+    var someObjectProfileData = profileData[2];
+    var f3ProfileData = profileData[3];
     
     assertEquals('f1', f1ProfileData.forFunction);
     assertEquals(100, f1ProfileData.callCount);
@@ -192,6 +212,12 @@ function testProfiler_getProfileData()
     assertTrue(f2ProfileData.totalTime == f2ProfileData.ownTime);
     assertTrue(f2ProfileData.averageOwnTime > 0);
     assertTrue(f2ProfileData.averageTime == f2ProfileData.averageOwnTime);
+
+    assertEquals('SomeObject', someObjectProfileData.forFunction);
+    assertEquals(1, someObjectProfileData.callCount);
+    
+    assertEquals('f3', f3ProfileData.forFunction);
+    assertEquals(100, f3ProfileData.callCount);
 }
 
 </script>

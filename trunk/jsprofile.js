@@ -306,20 +306,6 @@ function ScriptLoader(callback)
 //******************************************************************************
 // Helper functions for the profiler
 
-function isIE()
-{
-    return window.ActiveXObject != undefined;
-}
-
-
-
-function isOpera()
-{
-    return window.opera != undefined;
-}
-
-
-
 /**
  * Identifies special IE objects that should not be treated as typical objects.
  */
@@ -418,46 +404,35 @@ function Profiler()
         if (this.getState() == Profiler.STATE_NEW) {
             this._setState(Profiler.STATE_INITIALIZING);
             var self = this;
-            if (isIE() || isOpera()) {
-                // IE, so we need to parse the scripts manually. We get the
-                // script contents using AJAX; thus for this to work they
-                // probably must be on a webserver, i.e. not accessed via the
-                // file:// protocol.
-                var variableNames = [];
-                var callback = function(scriptContents) {
-                    for (var i = 0; i < scriptContents.length; ++i) {
-                        var possibleNames =
-                            self._lazyParse(scriptContents[i]);
-                        for (var j = 0; j < possibleNames.length; ++j) {
-                            var possibleName = possibleNames[j];
-                            if (window[possibleName]) {
-                                variableNames.push(possibleName);
-                            }
+            // we get the script contents using AJAX; thus for this to work 
+            // they probably must be on a webserver, i.e. not accessed via the
+            // file:// protocol.
+            var variableNames = [];
+            var callback = function(scriptContents) {
+                for (var i = 0; i < scriptContents.length; ++i) {
+                    var possibleNames =
+                        self._lazyParse(scriptContents[i]);
+                    for (var j = 0; j < possibleNames.length; ++j) {
+                        var possibleName = possibleNames[j];
+                        if (window[possibleName]) {
+                            variableNames.push(possibleName);
                         }
                     }
-                    self.logger.debug('Found window-scoped variables: '
-                        + variableNames.join(', '));
-                    setTimeout(function() {
-                        self._decorateAllFunctions(window, variableNames);
-                        self._setState(Profiler.STATE_RUNNING);
-                    }, 1);
-                };
-                try {
-                    scriptLoader = new ScriptLoader(callback);
                 }
-                catch (e) {
-                    this.logger.error('Could not load scripts: '
-                        + (e.message ? e.message : e));
-                    this._setState(Profiler.STATE_NEW);
-                }
-            }
-            else {
-                // wait a split second to allow the previous state update to
-                // propagate
+                self.logger.debug('Found window-scoped variables: '
+                    + variableNames.join(', '));
                 setTimeout(function() {
-                    self._decorateAllFunctions();
+                    self._decorateAllFunctions(window, variableNames);
                     self._setState(Profiler.STATE_RUNNING);
                 }, 1);
+            };
+            try {
+                scriptLoader = new ScriptLoader(callback);
+            }
+            catch (e) {
+                this.logger.error('Could not load scripts: '
+                    + (e.message ? e.message : e));
+                this._setState(Profiler.STATE_NEW);
             }
         }
         else if (this.getState() == Profiler.STATE_STOPPED) {
@@ -602,7 +577,7 @@ function Profiler()
         if (this.getState() == Profiler.STATE_RUNNING) {
             var profileData = this.profileData[id];
             var startTime = profileData.startTimes.pop();
-            var runTime = (new Date) - startTime;
+            var runTime = (new Date()) - startTime;
             profileData.totalTime += runTime;
             
             // populate nonOwnTime upward before we lose the information
@@ -738,6 +713,10 @@ function Profiler()
                                 }
                             }
                             this.functionTuples.push([ prop, object ]);
+                            // also traverse this object's prototype
+                            if (childObject.prototype) {
+                                objectQueue.push(childObject.prototype);
+                            }
                             childObject.markedAsAlreadySeen = true;
                             markedObjects.push(childObject);
                             break;
@@ -811,9 +790,6 @@ function Profiler()
             // don't do it twice!
             return;
         }
-        if (!parentObject) {
-            parentObject = window;
-        }
         
         this._getFunctionTuples(parentObject, variableNames);
         for (var i = 0; i < this.functionTuples.length; ++i) {
@@ -827,13 +803,10 @@ function Profiler()
         this.functionsAreDecorated = true;
     };
     
-    this._undecorateAllFunctions = function(parentObject) {
+    this._undecorateAllFunctions = function() {
         if (!this.functionsAreDecorated) {
             // nothing to undecorate
             return;
-        }
-        if (!parentObject) {
-            parentObject = window;
         }
         
         for (var i = 0; i < this.functionTuples.length; ++i) {
@@ -1015,12 +988,21 @@ function DefaultProfilerView(parentId)
         switch(this.sortByColumn) {
             case 'Function Name':
                 sortFn = function(a, b) {
-                    var uc_a = a.forFunction.toUpperCase();
-                    var uc_b = b.forFunction.toUpperCase();
-                    if (uc_a > uc_b) {
+                    f1 = a.forFunction;
+                    f2 = b.forFunction;
+                    var uc_f1 = f1.toUpperCase();
+                    var uc_f2 = f2.toUpperCase();
+                    if (uc_f1 > uc_f2) {
                         return 1;
                     }
-                    if (uc_a < uc_b) {
+                    if (uc_f1 < uc_f2) {
+                        return -1;
+                    }
+                    // ok, discriminate by case
+                    if (f1 > f2) {
+                        return 1;
+                    }
+                    if (f1 < f2) {
                         return -1;
                     }
                     return 0;
