@@ -166,49 +166,6 @@ function print_r(object, maxDepth, indent)
 
 
 /**
- * Creates a new AJAX request object.
- */
-function createXMLHttpRequest() 
-{
-    if (window.XMLHttpRequest) {
-        return new XMLHttpRequest();
-    } 
-    else if (window.ActiveXObject) {
-        return new ActiveXObject("Microsoft.XMLHTTP");
-    }
-}
-
-
-
-/**
- * Sends a request and registers a callback for it. The callback is
- * automatically decorated with ready state checking. If specified, a different
- * callback will be invoked if the request fails.
- */
-function sendXMLHttpRequest(request, url, callback, failureCallback)
-{
-    if (request) {
-        // decorate the callback
-        request.onreadystatechange = function() {
-            if (request.readyState == 4) {      // "complete"
-                if (request.status == 200) {    // "OK"
-                    callback(request);
-                }
-                else {
-                    if (failureCallback) {
-                        failureCallback(request);
-                    }
-                }
-            }
-        };
-        request.open("GET", url, true);
-        request.send(null);
-    }
-}
-
-
-
-/**
  * This object makes it a little easier to construct DOM nodes.
  */
 var DOMBuilder = {
@@ -267,14 +224,51 @@ var DOMBuilder = {
 function ScriptLoader(callback)
 {
     /**
+     * Creates a new AJAX request object.
+     */
+    this._createXMLHttpRequest = function() {
+        if (window.XMLHttpRequest) {
+            return new XMLHttpRequest();
+        } 
+        else if (window.ActiveXObject) {
+            return new ActiveXObject("Microsoft.XMLHTTP");
+        }
+    };
+    
+    /**
+     * Sends a request and registers a callback for it. The callback is
+     * automatically decorated with ready state checking. If specified, a
+     * different callback will be invoked if the request fails.
+     */
+    this._sendXMLHttpRequest = function(request, url, callback, failureCallback)
+    {
+        if (request) {
+            // decorate the callback
+            request.onreadystatechange = function() {
+                if (request.readyState == 4) {      // "complete"
+                    if (request.status == 200) {    // "OK"
+                        callback(request);
+                    }
+                    else {
+                        if (failureCallback) {
+                            failureCallback(request);
+                        }
+                    }
+                }
+            };
+            request.open("GET", url, true);
+            request.send(null);
+        }
+    }
+    
+    /**
      * The main method of this class. Loads the contents of all scripts for the
      * document object, including those whose src attributes reference external
      * resources, and invokes the callback function with the list of script
      * contents as the argument.
      */
     this._callWithScriptContents = function(callback) {
-        var scriptLoader = this;
-        scriptLoader.scriptContents = [];
+        this.scriptContents = [];
         
         var sources = []
         var scripts = document.getElementsByTagName('script');
@@ -282,16 +276,16 @@ function ScriptLoader(callback)
             if (scripts[i].src) {
                 sources.push(scripts[i].src);
             }
-            else {
-                scriptLoader.scriptContents.push(scripts[i].text);
-            }
+            this.scriptContents.push(scripts[i].text);
         }
+        var nScripts = this.scriptContents.length + sources.length;
+        var scriptLoader = this;
         for (var i = 0; i < sources.length; ++i) {
-            var request = createXMLHttpRequest();
-            sendXMLHttpRequest(request, sources[i], function(request) {
+            var request = this._createXMLHttpRequest();
+            this._sendXMLHttpRequest(request, sources[i], function(request) {
                 scriptLoader.scriptContents.push(request.responseText);
                 // all scripts finished loading?
-                if (scriptLoader.scriptContents.length == scripts.length) {
+                if (scriptLoader.scriptContents.length == nScripts) {
                     callback(scriptLoader.scriptContents);
                 }
             });
