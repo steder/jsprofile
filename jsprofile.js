@@ -349,7 +349,7 @@ function isNativeCode(object)
 // The ProfileData object is the data structure that holds the profile
 // information for each function.
 
-function ProfileData(functionName)
+function ProfileData(functionTrace)
 {
     this.updateCalculatedValues = function() {
         this.ownTime = this.totalTime - this.nonOwnTime;
@@ -359,8 +359,9 @@ function ProfileData(functionName)
         }
     };
 
-    this._init = function(functionName) {
-        this.forFunction = functionName;
+    this._init = function(functionTrace) {
+        this.functionName = functionTrace[functionTrace.length-1];
+        this.functionTrace = functionTrace;
         
         this.callCount = 0;
         this.totalTime = 0;
@@ -379,7 +380,7 @@ function ProfileData(functionName)
         this.averageOwnTime = 0;
     };
     
-    this._init(functionName);
+    this._init(functionTrace);
 };
 
 
@@ -541,8 +542,8 @@ function Profiler()
      * Creates a unique ProfileData object for a profilable function, and
      * returns its identifier.
      */
-    this._addProfileDataForFunction = function(functionName) {
-        this.profileData.push(new ProfileData(functionName));
+    this._addProfileDataForFunction = function(functionTrace) {
+        this.profileData.push(new ProfileData(functionTrace));
         var id = this.profileData.length - 1;
         return id;
     };
@@ -593,10 +594,11 @@ function Profiler()
      * @param variableNames  optional
      */
     this._getFunctionTuples = function(parentObject, variableNames) {
-        var objectQueue = [ parentObject ];
-        var excludedObjects = [ null, undefined ].concat(this.excludedObjects);
-        var excludedFunctions = [ null, undefined ]
-            .concat(this.excludedFunctions);
+        var objectQueue = [ [ parentObject, [] ] ];
+        var excludedObjects =
+            [ null, undefined ].concat(this.excludedObjects);
+        var excludedFunctions =
+            [ null, undefined ].concat(this.excludedFunctions);
         var markedObjects = [];
         var unmarkableObjects = [];
         
@@ -605,7 +607,9 @@ function Profiler()
         queueLoop:
         while (objectQueue.length > 0) {
             // perform non-recursive, breadth-first iteration
-            var object = objectQueue.shift();
+            var queueItem = objectQueue.shift();
+            var object = queueItem[0];
+            var trace = queueItem[1];
             var props = [];
             
             if (variableNames && variableNames.length) {
@@ -680,7 +684,8 @@ function Profiler()
                                     continue objectLoop;
                                 }
                             }
-                            objectQueue.push(childObject);
+                            objectQueue.push([ childObject
+                                , trace.concat([ prop ]) ]);
                             try {
                                 childObject.markedAsAlreadySeen = true;
                                 markedObjects.push(childObject);
@@ -706,10 +711,12 @@ function Profiler()
                                     continue objectLoop;
                                 }
                             }
-                            this.functionTuples.push([ prop, object ]);
+                            this.functionTuples.push([trace.concat([ prop ])
+                                , object]);
                             // also traverse this object's prototype
                             if (childObject.prototype) {
-                                objectQueue.push(childObject.prototype);
+                                objectQueue.push([ childObject.prototype
+                                    , trace.concat([ prop, 'prototype' ]) ]);
                             }
                             childObject.markedAsAlreadySeen = true;
                             markedObjects.push(childObject);
@@ -740,9 +747,11 @@ function Profiler()
      * Decorates a function to be profiled, preserving the original function so
      * it can be restored via undecorateFunction().
      */
-    this._decorateFunction = function(functionName, parentObject) {
+    this._decorateFunction = function(functionTrace, parentObject)
+    {
         var profiler = this;
-        var id = this._addProfileDataForFunction(functionName);
+        var id = this._addProfileDataForFunction(functionTrace);
+        var functionName = functionTrace[functionTrace.length-1];
         var originalFunction = parentObject[functionName];
         
         var decorator = function() {
@@ -756,15 +765,16 @@ function Profiler()
         parentObject[functionName] = decorator;
     };
     
-    this._undecorateFunction = function(functionName, parentObject) {
+    this._undecorateFunction = function(functionTrace, parentObject) {
         try {
+            var functionName = functionTrace[functionTrace.length-1];
             parentObject[functionName] =
                 parentObject[functionName].originalFunction;
         }
         catch (e) {
             // maybe this function was not decorated?
             this.logger.warn('Caught exception when trying to undecorate '
-                + functionName + ': ' + (e.message ? e.message : e));
+                + functionTrace.join('.') + ': ' + (e.message ? e.message : e));
         }
     };
 
@@ -787,11 +797,10 @@ function Profiler()
         
         this._getFunctionTuples(parentObject, variableNames);
         for (var i = 0; i < this.functionTuples.length; ++i) {
-            var functionName = this.functionTuples[i][0];
+            var functionTrace = this.functionTuples[i][0];
             var parentObject = this.functionTuples[i][1];
-            this._decorateFunction(functionName, parentObject);
-            this.logger.info('Decorated function ' + functionName
-                + ' for object ' + parentObject);
+            this._decorateFunction(functionTrace, parentObject);
+            this.logger.info('Decorated function ' + functionTrace.join('.'));
         }
         
         this.functionsAreDecorated = true;
@@ -804,12 +813,10 @@ function Profiler()
         }
         
         for (var i = 0; i < this.functionTuples.length; ++i) {
-            var functionName = this.functionTuples[i][0];
+            var functionTrace = this.functionTuples[i][0];
             var parentObject = this.functionTuples[i][1];
-            this._undecorateFunction(functionName, parentObject);
-            this.logger.info('Undecorated function ' + functionName
-                + ' for object ' + parentObject);
-
+            this._undecorateFunction(functionTrace, parentObject);
+            this.logger.info('Undecorated function ' + functionTrace.join('.'));
         }
         this.functionTuples = [];
         
@@ -982,8 +989,8 @@ function DefaultProfilerView(parentId)
         switch(this.sortByColumn) {
             case 'Function Name':
                 sortFn = function(a, b) {
-                    f1 = a.forFunction;
-                    f2 = b.forFunction;
+                    f1 = a.functionName;
+                    f2 = b.functionName;
                     var uc_f1 = f1.toUpperCase();
                     var uc_f2 = f2.toUpperCase();
                     if (uc_f1 > uc_f2) {
@@ -1030,7 +1037,7 @@ function DefaultProfilerView(parentId)
         for (var i = 0; i < profileData.length; ++i) {
             var result = profileData[i];
             var resultRow = DOMBuilder.TR([
-                result.forFunction
+                result.functionName
                 , result.callCount
                 , decimalRound(result.totalTime, 2)
                 , decimalRound(result.nonOwnTime, 2)
@@ -1038,6 +1045,7 @@ function DefaultProfilerView(parentId)
                 , decimalRound(result.averageTime, 2)
                 , decimalRound(result.averageOwnTime, 2) ]
                 , { border: 'solid 1px #cdc', padding: '.2em' });
+            resultRow.title = result.functionTrace.join('.');
             resultsTbody.appendChild(resultRow);
         }
     };
