@@ -87,6 +87,11 @@ function testProfiler__getFunctionTuples()
         this.value = 5;
     }
     SomeObject.prototype.f5 = function() { return 5; };
+    profiler._getFunctionTuples(SomeObject);
+    assertTrue(are_equal(
+        [ [ [ 'prototype', 'f5' ], SomeObject.prototype ] ],
+        profiler.functionTuples
+    ));
     object.o3 = new SomeObject();
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
@@ -109,6 +114,30 @@ function testProfiler__decorateFunction()
     assertTrue(/_enterProfile/.test(object.f1));
     assertTrue(/_exitProfile/.test(object.f1));
     assertTrue(/return 1;/.test(object.f1.originalFunction));
+    
+    // test that object prototype functions may access the members of the
+    // object instance. We use _decorateAllFunctions(), but are really testing
+    // the stated _decorateFunction() method.
+    function SomeObject() {
+        this.value = 1;
+        this.re = new RegExp('^foo');
+    }
+    SomeObject.prototype.add = function() { ++this.value; };
+    SomeObject.prototype.test = function(str) { return this.re.test(str); };
+    profiler._decorateAllFunctions(SomeObject);
+    assertTrue(/_enterProfile/.test(SomeObject.prototype.add));
+    assertTrue(/_exitProfile/.test(SomeObject.prototype.add));
+    assertTrue(/_enterProfile/.test(SomeObject.prototype.test));
+    assertTrue(/_exitProfile/.test(SomeObject.prototype.test));
+    var object = new SomeObject();
+    assertTrue(/_enterProfile/.test(object.add));
+    assertTrue(/_exitProfile/.test(object.add));
+    assertTrue(/_enterProfile/.test(object.test));
+    assertTrue(/_exitProfile/.test(object.test));
+    object.add();
+    assertEquals(2, object.value);
+    assertFalse(object.test('bar'))
+    assertTrue(object.test('foobar'));
 }
 
 
