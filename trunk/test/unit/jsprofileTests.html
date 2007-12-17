@@ -10,8 +10,6 @@
 <script language="JavaScript" type="text/javascript" src="../../jsprofile.js"></script>
 <script language="JavaScript" type="text/javascript">
 
-
-/*
 function testDecimalRound()
 {
     assertEquals(6, decimalRound(5.5432, 0));
@@ -53,7 +51,7 @@ function testProfiler__getFunctionTuples()
     };
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ 'f1', object ], [ 'f2', object ] ], 
+        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ] ], 
         profiler.functionTuples
     ));
     
@@ -63,16 +61,16 @@ function testProfiler__getFunctionTuples()
     };
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ 'f1', object ], [ 'f2', object ], [ 'f3', object.o1 ] ], 
+        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ], [ [ 'o1', 'f3' ], object.o1 ] ], 
         profiler.functionTuples
     ));
-    
+        
     // test circularly linked objects and duplicate references
     object.o2 = object;
     object.f4 = object.f1;
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ 'f1', object ], [ 'f2', object ], [ 'f3', object.o1 ] ], 
+        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ], [ [ 'o1', 'f3' ], object.o1 ] ], 
         profiler.functionTuples, 3
     )); // specified max depth to avoid infinite recursion
     
@@ -80,7 +78,7 @@ function testProfiler__getFunctionTuples()
     profiler.excludedObjects = [ object.o1 ];
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ 'f1', object ], [ 'f2', object ] ], 
+        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ] ], 
         profiler.functionTuples, 3
     ));
     
@@ -92,7 +90,7 @@ function testProfiler__getFunctionTuples()
     object.o3 = new SomeObject();
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ 'f1', object ], [ 'f2', object ], [ 'f5', SomeObject.prototype ] ], 
+        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ], [ [ 'o3', 'f5' ], SomeObject.prototype ] ], 
         profiler.functionTuples, 3
     ));
 }
@@ -107,7 +105,7 @@ function testProfiler__decorateFunction()
     var object = {
         f1: function() { return 1; }
     };
-    profiler._decorateFunction('f1', object);
+    profiler._decorateFunction([ 'f1' ], object);
     assertTrue(/_enterProfile/.test(object.f1));
     assertTrue(/_exitProfile/.test(object.f1));
     assertTrue(/return 1;/.test(object.f1.originalFunction));
@@ -123,8 +121,8 @@ function testProfiler__undecorateFunction()
     var object = {
         f1: function() { return 1; }
     };
-    profiler._decorateFunction('f1', object);
-    profiler._undecorateFunction('f1', object);
+    profiler._decorateFunction([ 'f1' ], object);
+    profiler._undecorateFunction([ 'f1' ], object);
     assertFalse(/_enterProfile/.test(object.f1));
     assertFalse(/_exitProfile/.test(object.f1));
     assertUndefined(object.f1.originalFunction);
@@ -156,7 +154,7 @@ function testProfiler__decorateAllFunctions()
     assertNotUndefined(object.f2.originalFunction);
     assertTrue(profiler.functionsAreDecorated);
 }
-*/
+
 
 
 function testProfiler_getProfileData()
@@ -197,7 +195,7 @@ function testProfiler_getProfileData()
     var someObjectProfileData = profileData[2];
     var f3ProfileData = profileData[3];
     
-    assertEquals('f1', f1ProfileData.forFunction);
+    assertEquals('f1', f1ProfileData.functionName);
     assertEquals(100, f1ProfileData.callCount);
     assertTrue(f1ProfileData.nonOwnTime > 0);
     assertTrue(f1ProfileData.ownTime > 0);
@@ -205,7 +203,7 @@ function testProfiler_getProfileData()
     assertTrue(f1ProfileData.averageOwnTime > 0);
     assertTrue(f1ProfileData.averageTime > f1ProfileData.averageOwnTime);
     
-    assertEquals('f2', f2ProfileData.forFunction);
+    assertEquals('f2', f2ProfileData.functionName);
     assertEquals(5000, f2ProfileData.callCount);
     assertTrue(f2ProfileData.nonOwnTime == 0);
     assertTrue(f2ProfileData.ownTime > 0);
@@ -213,10 +211,10 @@ function testProfiler_getProfileData()
     assertTrue(f2ProfileData.averageOwnTime > 0);
     assertTrue(f2ProfileData.averageTime == f2ProfileData.averageOwnTime);
 
-    assertEquals('SomeObject', someObjectProfileData.forFunction);
+    assertEquals('SomeObject', someObjectProfileData.functionName);
     assertEquals(1, someObjectProfileData.callCount);
     
-    assertEquals('f3', f3ProfileData.forFunction);
+    assertEquals('f3', f3ProfileData.functionName);
     assertEquals(100, f3ProfileData.callCount);
 }
 
