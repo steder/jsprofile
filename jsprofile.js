@@ -373,7 +373,7 @@ function ProfileData(functionName)
         
         // tracks of the start time of all invocations of this function; there
         // can be more than one occurring at any given time.
-        this.startTimes = [];
+        this.entryTimes = [];
         
         // the amount of time spent executing subroutines, i.e. not spent
         // executing the body of the function this data is for
@@ -561,11 +561,11 @@ function Profiler()
      * The function that is called as a function call is starting to be
      * profiled.
      */
-    this._enterProfile = function(id) {
+    this._enterProfile = function(id, entryTime) {
         if (this.getState() == Profiler.STATE_RUNNING) {
             var profileData = this.profileData[id];
             profileData.callCount++;
-            profileData.startTimes.push(new Date());
+            profileData.entryTimes.push(entryTime);
             this.profileStack.push(profileData);
         }
     };
@@ -573,11 +573,11 @@ function Profiler()
     /**
      * The function that is called when a function call has completed profiling.
      */
-    this._exitProfile = function(id) {
+    this._exitProfile = function(id, exitTime) {
         if (this.getState() == Profiler.STATE_RUNNING) {
             var profileData = this.profileData[id];
-            var startTime = profileData.startTimes.pop();
-            var runTime = (new Date()) - startTime;
+            var entryTime = profileData.entryTimes.pop();
+            var runTime = exitTime - entryTime;
             profileData.totalTime += runTime;
             
             // populate nonOwnTime upward before we lose the information
@@ -752,9 +752,9 @@ function Profiler()
         var originalFunction = parentObject[functionName];
         
         var decorator = function() {
-            profiler._enterProfile(id);
+            profiler._enterProfile(id, new Date());
             var retval = originalFunction.apply(this, arguments);
-            profiler._exitProfile(id);
+            profiler._exitProfile(id, new Date());
             return retval;
         };
         decorator.prototype = originalFunction.prototype;
