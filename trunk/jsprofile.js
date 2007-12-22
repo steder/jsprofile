@@ -698,6 +698,10 @@ function Profiler()
                             }
                             break;
                         case 'function':
+                            // don't include non-functions, such as RegExp
+                            if (!(childObject instanceof Function)) {
+                                continue;
+                            }
                             // don't include native functions
                             if (isNativeCode(childObject)) {
                                 this.logger.debug('Skipping native function: '
@@ -745,7 +749,8 @@ function Profiler()
     
     /**
      * Decorates a function to be profiled, preserving the original function so
-     * it can be restored via undecorateFunction().
+     * it can be restored via undecorateFunction(). The prototype of the
+     * decorator is set to the prototype of the original function.
      */
     this._decorateFunction = function(functionTrace, parentObject)
     {
