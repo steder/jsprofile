@@ -621,7 +621,7 @@ function Profiler()
                     props = keys(object);
                 }
                 catch (e) {
-                    this.logger.info('Caught exception when trying to enumerate '
+                    this.logger.debug('Caught exception when trying to enumerate '
                         + 'properties of object ' + object + ': '
                         + (e.message ? e.message : e));
                     continue;
@@ -715,8 +715,11 @@ function Profiler()
                                     continue objectLoop;
                                 }
                             }
-                            this.functionTuples.push([trace.concat([ prop ])
-                                , object]);
+                            this.functionTuples.push({
+                                functionTrace: trace.concat([ prop ])
+                                , parentObject:  object
+                                , originalFunction: childObject
+                            });
                             // also traverse this object's prototype
                             if (childObject.prototype) {
                                 objectQueue.push([ childObject.prototype
@@ -748,9 +751,9 @@ function Profiler()
     };
     
     /**
-     * Decorates a function to be profiled, preserving the original function so
-     * it can be restored via undecorateFunction(). The prototype of the
-     * decorator is set to the prototype of the original function.
+     * Decorates a function to be profiled. The prototype of the decorator is
+     * set to the prototype of the original function, and all expando
+     * properties are preserved.
      */
     this._decorateFunction = function(functionTrace, parentObject)
     {
@@ -766,23 +769,12 @@ function Profiler()
             return retval;
         };
         decorator.prototype = originalFunction.prototype;
-        decorator.originalFunction = originalFunction;
+        for (var prop in originalFunction) {
+            decorator[prop] = originalFunction[prop];
+        }
         parentObject[functionName] = decorator;
     };
     
-    this._undecorateFunction = function(functionTrace, parentObject) {
-        try {
-            var functionName = functionTrace[functionTrace.length-1];
-            parentObject[functionName] =
-                parentObject[functionName].originalFunction;
-        }
-        catch (e) {
-            // maybe this function was not decorated?
-            this.logger.warn('Caught exception when trying to undecorate '
-                + functionTrace.join('.') + ': ' + (e.message ? e.message : e));
-        }
-    };
-
     /**
      * Decorate for profiling all functions reachable by traversing the object
      * graph for a given object.
@@ -802,10 +794,10 @@ function Profiler()
         
         this._getFunctionTuples(parentObject, variableNames);
         for (var i = 0; i < this.functionTuples.length; ++i) {
-            var functionTrace = this.functionTuples[i][0];
-            var parentObject = this.functionTuples[i][1];
+            var functionTrace = this.functionTuples[i].functionTrace;
+            var parentObject = this.functionTuples[i].parentObject;
             this._decorateFunction(functionTrace, parentObject);
-            this.logger.info('Decorated function ' + functionTrace.join('.'));
+            this.logger.debug('Decorated function ' + functionTrace.join('.'));
         }
         
         this.functionsAreDecorated = true;
@@ -818,10 +810,12 @@ function Profiler()
         }
         
         for (var i = 0; i < this.functionTuples.length; ++i) {
-            var functionTrace = this.functionTuples[i][0];
-            var parentObject = this.functionTuples[i][1];
-            this._undecorateFunction(functionTrace, parentObject);
-            this.logger.info('Undecorated function ' + functionTrace.join('.'));
+            var functionTuple = this.functionTuples[i];
+            var functionTrace = functionTuple.functionTrace;
+            var functionName = functionTrace[functionTrace.length-1];
+            functionTuple.parentObject[functionName] =
+                functionTuple.originalFunction;
+            this.logger.debug('Undecorated function ' + functionTrace.join('.'));
         }
         this.functionTuples = [];
         
@@ -1221,7 +1215,7 @@ function DefaultProfilerView(parentId)
         this.profiler.setLogger(this);
         this.log = [];
         this.logCursor = 0;
-        this.logLevel = DefaultProfilerView.LOGLEVEL_WARN;
+        this.logLevel = DefaultProfilerView.LOGLEVEL_INFO;
         this.sortByColumn = 'Own Time';
         
         var self = this;

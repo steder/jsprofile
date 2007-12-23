@@ -43,11 +43,19 @@ a:active{color:#f00}
 <script src="../../../jsprofile.js"></script>
 <script>
 var context = new ExprContext(document);
+context.setCaseInsensitive(true);
+//context.setIgnoreAttributesWithoutValue(true);
 var xpath = "//td[descendant::a[@class='ks' and font[starts-with(text(), 'Sci/Tech')]]]/descendant::div[@class='lh'][2]/descendant::nobr";
 var xpathObj = xpathParse(xpath);
 
 function computeXPath() {
+    var startTime = new Date();
     var xpathResult = xpathObj.evaluate(context);
+    var endTime = new Date();
+    if (xpathResult && xpathResult.value) {
+        dpv.info('Computed ' + xpathResult.value.length + ' results in '
+            + (endTime - startTime) + 'ms');
+    }
 }
 </script>
 <link rel="alternate" type="application/rss+xml" title="RSS - Google News" href="http://news.google.com/?output=rss">
