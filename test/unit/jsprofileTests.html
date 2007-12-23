@@ -45,58 +45,100 @@ function testProfiler__getFunctionTuples()
     var profiler = new Profiler();
     
     // simple test
+    var f1 = function() { return 1; };
+    var f2 = function() { return 2; };
     var object = {
-        f1  : function() { return 1; }
-        , f2: function() { return 2; }
+        f1  : f1
+        , f2: f2
     };
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ] ], 
-        profiler.functionTuples
+        [ { functionTrace: [ 'f1' ]
+            , parentObject: object
+            , originalFunction: f1 }
+        , { functionTrace: [ 'f2' ]
+            , parentObject: object
+            , originalFunction: f2 } ]
+        , profiler.functionTuples
     ));
     
     // nested object test
+    var f3 = function() { return 3; };
     object.o1 = {
-        f3: function() { return 3; }
+        f3: f3
     };
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ], [ [ 'o1', 'f3' ], object.o1 ] ], 
-        profiler.functionTuples
+        [ { functionTrace: [ 'f1' ]
+            , parentObject: object
+            , originalFunction: f1 }
+        , { functionTrace: [ 'f2' ]
+            , parentObject: object
+            , originalFunction: f2 }
+        , { functionTrace: [ 'o1', 'f3' ]
+            , parentObject: object.o1
+            , originalFunction: f3 } ]
+        , profiler.functionTuples
     ));
-        
+    
     // test circularly linked objects and duplicate references
     object.o2 = object;
     object.f4 = object.f1;
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ], [ [ 'o1', 'f3' ], object.o1 ] ], 
-        profiler.functionTuples, 3
-    )); // specified max depth to avoid infinite recursion
+        [ { functionTrace: [ 'f1' ]
+            , parentObject: object
+            , originalFunction: f1 }
+        , { functionTrace: [ 'f2' ]
+            , parentObject: object
+            , originalFunction: f2 }
+        , { functionTrace: [ 'o1', 'f3' ]
+            , parentObject: object.o1
+            , originalFunction: f3 } ]
+        , profiler.functionTuples, 3
+        // specified max depth to avoid infinite recursion
+    ));
     
     // test excluded objects aren't included
     profiler.excludedObjects = [ object.o1 ];
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ] ], 
-        profiler.functionTuples, 3
+        [ { functionTrace: [ 'f1' ]
+            , parentObject: object
+            , originalFunction: f1 }
+        , { functionTrace: [ 'f2' ]
+            , parentObject: object
+            , originalFunction: f2 } ]
+        , profiler.functionTuples, 3
+        // specified max depth to avoid infinite recursion
     ));
     
     // test prototype functions
     function SomeObject() {
         this.value = 5;
     }
-    SomeObject.prototype.f5 = function() { return 5; };
+    var f5 = function() { return 5; };
+    SomeObject.prototype.f5 = f5;
     profiler._getFunctionTuples(SomeObject);
     assertTrue(are_equal(
-        [ [ [ 'prototype', 'f5' ], SomeObject.prototype ] ],
-        profiler.functionTuples
+        [ { functionTrace: [ 'prototype', 'f5' ]
+            , parentObject: SomeObject.prototype
+            , originalFunction: f5 } ]
+        , profiler.functionTuples
     ));
     object.o3 = new SomeObject();
     profiler._getFunctionTuples(object);
     assertTrue(are_equal(
-        [ [ [ 'f1' ], object ], [ [ 'f2' ], object ], [ [ 'o3', 'f5' ], SomeObject.prototype ] ], 
-        profiler.functionTuples, 3
+        [ { functionTrace: [ 'f1' ]
+            , parentObject: object
+            , originalFunction: f1 }
+        , { functionTrace: [ 'f2' ]
+            , parentObject: object
+            , originalFunction: f2 }
+        , { functionTrace: [ 'o3', 'f5' ]
+            , parentObject: SomeObject.prototype
+            , originalFunction: f5 } ]
+        , profiler.functionTuples, 3
     ));
 }
 
@@ -106,14 +148,16 @@ function testProfiler__decorateFunction()
 {
     var profiler = new Profiler();
 
-    // test function is decorated, and original function is preserved
+    // test function is decorated, and properties of original function are
+    // preserved
     var object = {
         f1: function() { return 1; }
     };
+    object.f1.foo = 'bar';
     profiler._decorateFunction([ 'f1' ], object);
     assertTrue(/_enterProfile/.test(object.f1));
     assertTrue(/_exitProfile/.test(object.f1));
-    assertTrue(/return 1;/.test(object.f1.originalFunction));
+    assertEquals('bar', object.f1.foo);
     
     // test that object prototype functions may access the members of the
     // object instance. We use _decorateAllFunctions(), but are really testing
@@ -142,24 +186,6 @@ function testProfiler__decorateFunction()
 
 
 
-function testProfiler__undecorateFunction()
-{
-    var profiler = new Profiler();
-
-    // test undecorated function is original
-    var object = {
-        f1: function() { return 1; }
-    };
-    profiler._decorateFunction([ 'f1' ], object);
-    profiler._undecorateFunction([ 'f1' ], object);
-    assertFalse(/_enterProfile/.test(object.f1));
-    assertFalse(/_exitProfile/.test(object.f1));
-    assertUndefined(object.f1.originalFunction);
-    assertTrue(/return 1;/.test(object.f1));
-}
-
-
-
 function testProfiler__decorateAllFunctions()
 {
     var profiler = new Profiler();
@@ -176,12 +202,38 @@ function testProfiler__decorateAllFunctions()
         , f2: function(n) {
             return parseInt(n * 1.2);
         }
+        , re: new RegExp('foo')
     };
     profiler._decorateAllFunctions(object);
     
-    assertNotUndefined(object.f1.originalFunction);
-    assertNotUndefined(object.f2.originalFunction);
+    for (var i = 0; i < profiler.functionTuples.length; ++i) {
+        var functionTuple = profiler.functionTuples[i];
+        var functionTrace = functionTuple.functionTrace;
+        var functionName = functionTrace[functionTrace.length-1];
+        if (functionName != 'f1' && functionName != 'f2') {
+            fail('non-function was decorated!');
+        }
+        assertNotUndefined(functionTuple.originalFunction);
+    }
     assertTrue(profiler.functionsAreDecorated);
+}
+
+
+
+function testProfiler__undecorateAllFunctions()
+{
+    var profiler = new Profiler();
+
+    // test undecorated function is original
+    var object = {
+        f1: function() { return 1; }
+    };
+    profiler._decorateAllFunctions(object);
+    profiler._undecorateAllFunctions();
+    assertFalse(/_enterProfile/.test(object.f1));
+    assertFalse(/_exitProfile/.test(object.f1));
+    assertTrue(/return 1;/.test(object.f1));
+    assertEquals(0, profiler.functionTuples.length);
 }
 
 
