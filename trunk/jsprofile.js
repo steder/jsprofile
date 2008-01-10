@@ -171,45 +171,64 @@ function print_r(object, maxDepth, indent)
 var DOMBuilder = {
     /**
      * Creates a TR element and sets the style of each cell to the specified
-     * style, if provided.
+     * style, if provided. The content of each created TD element is either
+     * a text node if the value is a string, or DOM nodes if the value is a
+     * list.
      *
-     * @param cellValues   a list of textual values for the cells in the row
+     * @param cellValues   a list of textual values and/or lists of DOM nodes
+     *                     for the cells in the row
      * @param styleObject  an object mapping style attributes to their string
      *                     values
      * @param cellTag      optionally specifies the tag name to be used. The
-     *                     default is "TD".
+     *                     default is "TD"; "TH" might be a common alternative.
      */
     TR: function(cellValues, styleObject, cellTag) {
         var tr = document.createElement('tr');
         var cellTag = cellTag || 'td';
         for (var i = 0; i < cellValues.length; ++i) {
-            var td = document.createElement(cellTag);
-            td.appendChild(document.createTextNode(cellValues[i]));
-            if (styleObject) {
-                for (var prop in styleObject) {
-                    td.style[prop] = styleObject[prop];
-                }
-            }
-            tr.appendChild(td);
+            tr.appendChild(DOMBuilder._createElement(cellTag, cellValues[i],
+                styleObject));
         }
         return tr;
     }
     
     /**
      * Creates an LI element and sets its style.
-     *
-     * @param value        the textual value of the list element
-     * @param styleObject  the element's style
      */
     , LI: function(value, styleObject) {
-        var li = document.createElement('li');
-        li.appendChild(document.createTextNode(value));
+        return DOMBuilder._createElement('li', value, styleObject);
+    }
+    
+    , SPAN: function(value, styleObject) {
+        return DOMBuilder._createElement('span', value, styleObject);
+    }
+    
+    , BR: function() { return document.createElement('br'); }
+    
+    , _createElement: function(type, value, styleObject) {
+        var element = document.createElement(type);
+        if (value instanceof Array) {
+            DOMBuilder._appendNodes(element, value);
+        }
+        else {
+            element.appendChild(document.createTextNode(value));
+        }
+        DOMBuilder._copyStyle(element, styleObject);
+        return element;
+    }
+    
+    , _copyStyle: function(node, styleObject) {
         if (styleObject) {
             for (prop in styleObject) {
-                li.style[prop] = styleObject[prop];
+                node.style[prop] = styleObject[prop];
             }
         }
-        return li;
+    }
+    
+    , _appendNodes: function(parentNode, nodes) {
+        for (var i = 0; i < nodes.length; ++i) {
+            parentNode.appendChild(nodes[i]);
+        }
     }
 };
 
@@ -345,11 +364,46 @@ function isNativeCode(object)
 
 
 
+function isDecoratedForProfiling(object)
+{
+    return /_enterProfile/.test(object) && /_exitProfile/.test(object);
+}
+
+
+
+//******************************************************************************
+// The FunctionInfo object stores all known information about a function.
+
+function FunctionInfo(functionTrace, parentObject)
+{
+    this.getName = function() {
+        return this.trace[this.trace.length-1];
+    };
+    
+    this.getFunction = function() {
+        return parentObject[this.getName()];
+    };
+    
+    this.getTraceAsString = function() {
+        return this.trace.join('.');
+    };
+    
+    this._init = function(functionTrace, parentObject) {
+        this.trace = functionTrace;
+        this.parentObject = parentObject;
+        this.originalFunction = this.parentObject[this.getName()];
+    };
+    
+    this._init(functionTrace, parentObject);
+}
+
+
+
 //******************************************************************************
 // The ProfileData object is the data structure that holds the profile
 // information for each function.
 
-function ProfileData(functionTrace)
+function ProfileData(functionInfo)
 {
     this.updateCalculatedValues = function() {
         this.ownTime = this.totalTime - this.nonOwnTime;
@@ -359,9 +413,8 @@ function ProfileData(functionTrace)
         }
     };
 
-    this._init = function(functionTrace) {
-        this.functionName = functionTrace[functionTrace.length-1];
-        this.functionTrace = functionTrace;
+    this._init = function(functionInfo) {
+        this.functionInfo = functionInfo;
         
         this.callCount = 0;
         this.totalTime = 0;
@@ -380,7 +433,7 @@ function ProfileData(functionTrace)
         this.averageOwnTime = 0;
     };
     
-    this._init(functionTrace);
+    this._init(functionInfo);
 };
 
 
@@ -542,8 +595,8 @@ function Profiler()
      * Creates a unique ProfileData object for a profilable function, and
      * returns its identifier.
      */
-    this._addProfileDataForFunction = function(functionTrace) {
-        this.profileData.push(new ProfileData(functionTrace));
+    this._addProfileDataForFunction = function(functionInfo) {
+        this.profileData.push(new ProfileData(functionInfo));
         var id = this.profileData.length - 1;
         return id;
     };
@@ -557,52 +610,46 @@ function Profiler()
      * profiled.
      */
     this._enterProfile = function(id, entryTime) {
-        if (this.getState() == Profiler.STATE_RUNNING) {
-            var profileData = this.profileData[id];
-            profileData.callCount++;
-            profileData.entryTimes.push(entryTime);
-            this.profileStack.push(profileData);
-        }
+        var profileData = this.profileData[id];
+        profileData.callCount++;
+        profileData.entryTimes.push(entryTime);
+        this.profileStack.push(profileData);
     };
     
     /**
      * The function that is called when a function call has completed profiling.
      */
     this._exitProfile = function(id, exitTime) {
-        if (this.getState() == Profiler.STATE_RUNNING) {
-            var profileData = this.profileData[id];
-            var entryTime = profileData.entryTimes.pop();
-            var runTime = exitTime - entryTime;
-            profileData.totalTime += runTime;
-            
-            // populate nonOwnTime upward before we lose the information
-            if (this.profileStack.length > 1) {
-                var callerProfileData =
-                    this.profileStack[this.profileStack.length-2];
-                callerProfileData.nonOwnTime += runTime;
-            }
-            this.profileStack.pop();
+        var profileData = this.profileData[id];
+        var entryTime = profileData.entryTimes.pop();
+        var runTime = exitTime - entryTime;
+        profileData.totalTime += runTime;
+        
+        // populate nonOwnTime upward before we lose the information
+        if (this.profileStack.length > 1) {
+            var callerProfileData =
+                this.profileStack[this.profileStack.length-2];
+            callerProfileData.nonOwnTime += runTime;
         }
+        this.profileStack.pop();
     };
 
     /**
-     * Sets the functionTuples property of the Profiler object to a list of
-     * (functionName, parentObject) tuples of all functions reachable by
-     * traversing a given object. 
+     * Returns a list of objects containing information about all functions
+     * reachable by traversing a given object.
      *
      * @param parentObject   the object from which to traverse the object graph
      * @param variableNames  optional
      */
-    this._getFunctionTuples = function(parentObject, variableNames) {
+    this._getAllFunctions = function(parentObject, variableNames) {
         var objectQueue = [ [ parentObject, [] ] ];
         var excludedObjects =
             [ null, undefined ].concat(this.excludedObjects);
         var excludedFunctions =
             [ null, undefined ].concat(this.excludedFunctions);
+        var functions = [];
         var markedObjects = [];
         var unmarkableObjects = [];
-        
-        this.functionTuples = [];
         
         queueLoop:
         while (objectQueue.length > 0) {
@@ -706,7 +753,12 @@ function Profiler()
                             if (isNativeCode(childObject)) {
                                 this.logger.debug('Skipping native function: '
                                     + prop);
-                                continue objectLoop;
+                                continue;
+                            }
+                            // don't include functions that are already
+                            // decorated
+                            if (isDecoratedForProfiling(childObject)) {
+                                continue;
                             }
                             // don't include functions that are explicitly
                             // excluded
@@ -715,11 +767,8 @@ function Profiler()
                                     continue objectLoop;
                                 }
                             }
-                            this.functionTuples.push({
-                                functionTrace: trace.concat([ prop ])
-                                , parentObject:  object
-                                , originalFunction: childObject
-                            });
+                            functions.push(new FunctionInfo(
+                                trace.concat([ prop ]), object));
                             // also traverse this object's prototype
                             if (childObject.prototype) {
                                 objectQueue.push([ childObject.prototype
@@ -748,6 +797,7 @@ function Profiler()
         for (var i = 0; i < markedObjects.length; ++i) {
             markedObjects[i].markedAsAlreadySeen = undefined;
         }
+        return functions;
     };
     
     /**
@@ -755,24 +805,32 @@ function Profiler()
      * set to the prototype of the original function, and all expando
      * properties are preserved.
      */
-    this._decorateFunction = function(functionTrace, parentObject)
+    this._decorateFunction = function(functionInfo)
     {
         var profiler = this;
-        var id = this._addProfileDataForFunction(functionTrace);
-        var functionName = functionTrace[functionTrace.length-1];
-        var originalFunction = parentObject[functionName];
+        var id = this._addProfileDataForFunction(functionInfo);
+        var originalFunction = functionInfo.originalFunction;
         
         var decorator = function() {
-            profiler._enterProfile(id, new Date());
-            var retval = originalFunction.apply(this, arguments);
-            profiler._exitProfile(id, new Date());
-            return retval;
+            if (profiler.getState() == Profiler.STATE_RUNNING) {
+                profiler._enterProfile(id, new Date());
+                var retval = originalFunction.apply(this, arguments);
+                profiler._exitProfile(id, new Date());
+                return retval;
+            }
+            else {
+                return originalFunction.apply(this, arguments);
+            }
         };
         decorator.prototype = originalFunction.prototype;
         for (var prop in originalFunction) {
             decorator[prop] = originalFunction[prop];
         }
-        parentObject[functionName] = decorator;
+        functionInfo.parentObject[functionInfo.getName()] = decorator;
+        
+        this.decoratedFunctions.push(functionInfo);
+        this.logger.debug('Decorated function '
+            + functionInfo.getTraceAsString());
     };
     
     /**
@@ -787,62 +845,22 @@ function Profiler()
      *                       will occur for child objects.
      */
     this._decorateAllFunctions = function(parentObject, variableNames) {
-        if (this.functionsAreDecorated) {
-            // don't do it twice!
-            return;
+        var functions = this
+            ._getAllFunctions(parentObject, variableNames);
+        for (var i = 0; i < functions.length; ++i) {
+            this._decorateFunction(functions[i]);
         }
-        
-        this._getFunctionTuples(parentObject, variableNames);
-        for (var i = 0; i < this.functionTuples.length; ++i) {
-            var functionTrace = this.functionTuples[i].functionTrace;
-            var parentObject = this.functionTuples[i].parentObject;
-            this._decorateFunction(functionTrace, parentObject);
-            this.logger.debug('Decorated function ' + functionTrace.join('.'));
-        }
-        
-        this.functionsAreDecorated = true;
     };
     
     this._undecorateAllFunctions = function() {
-        if (!this.functionsAreDecorated) {
-            // nothing to undecorate
-            return;
+        for (var i = 0; i < this.decoratedFunctions.length; ++i) {
+            var functionInfo = this.decoratedFunctions[i];
+            functionInfo.parentObject[functionInfo.getName()] =
+                functionInfo.originalFunction;
+            this.logger.debug('Undecorated function '
+                + functionInfo.getTraceAsString());
         }
-        
-        for (var i = 0; i < this.functionTuples.length; ++i) {
-            var functionTuple = this.functionTuples[i];
-            var functionTrace = functionTuple.functionTrace;
-            var functionName = functionTrace[functionTrace.length-1];
-            functionTuple.parentObject[functionName] =
-                functionTuple.originalFunction;
-            this.logger.debug('Undecorated function ' + functionTrace.join('.'));
-        }
-        this.functionTuples = [];
-        
-        this.functionsAreDecorated = false;
-    };
-    
-    /**
-     * It's important to know how long the entry and exit methods take to
-     * execute with respect to the execution time of the method being profiled.
-     * This provides a baseline for determining the significance of results.
-     */
-    this._profileDecorator = function() {
-        var startTime, endTime, nCalls = 1000;
-        var object = {
-            justDecorate: function() { 1; }
-        };
-        this._decorateAllFunctions(object);
-        startTime = new Date();
-        for (var i = 0; i < nCalls; ++i) {
-            object.justDecorate();
-        }
-        endTime = new Date();
-        this._undecorateAllFunctions(object);
-        this._clearProfileData();
-        
-        // calculate
-        this.averageDecoratorTime = (startTime - endTime) / nCalls;
+        this.decoratedFunctions = [];
     };
     
     /**
@@ -889,22 +907,15 @@ function Profiler()
             , window.ProfileData    // the ProfileData class
         ];
         
-        // this is the list of all functions that are being profiled. It is
-        // populated when the functions are decorated, and kept until they are
-        // undecorated, at which point it is cleared.
-        this.functionTuples = [];
-        
-        this.functionsAreDecorated = false;
+        // maintains a list of data objects for functions that have been
+        // decorated for profiling
+        this.decoratedFunctions = [];
         
         // the current function call profile stack. This is required in order
         // for ownTime to be calculated.
         this.profileStack = [];
         
         this.logger = new Profiler.DefaultLogger();
-        
-        // timings for internal methods
-        this.averageDecoratorTime = 0;
-        this._profileDecorator();
         
         this._setState(Profiler.STATE_NEW);
     };
@@ -988,8 +999,8 @@ function DefaultProfilerView(parentId)
         switch(this.sortByColumn) {
             case 'Function Name':
                 sortFn = function(a, b) {
-                    f1 = a.functionName;
-                    f2 = b.functionName;
+                    f1 = a.functionInfo.getName();
+                    f2 = b.functionInfo.getName();
                     var uc_f1 = f1.toUpperCase();
                     var uc_f2 = f2.toUpperCase();
                     if (uc_f1 > uc_f2) {
@@ -999,6 +1010,15 @@ function DefaultProfilerView(parentId)
                         return -1;
                     }
                     // ok, discriminate by case
+                    if (f1 > f2) {
+                        return 1;
+                    }
+                    if (f1 < f2) {
+                        return -1;
+                    }
+                    // ok, discriminate by trace
+                    f1 = a.functionInfo.getTraceAsString();
+                    f2 = b.functionInfo.getTraceAsString();
                     if (f1 > f2) {
                         return 1;
                     }
@@ -1036,7 +1056,10 @@ function DefaultProfilerView(parentId)
         for (var i = 0; i < profileData.length; ++i) {
             var result = profileData[i];
             var resultRow = DOMBuilder.TR([
-                result.functionName
+                [   document.createTextNode(result.functionInfo.getName())
+                    , DOMBuilder.BR()
+                    , DOMBuilder.SPAN(result.functionInfo.getTraceAsString(),
+                        { fontSize: 'xx-small' }) ]
                 , result.callCount
                 , decimalRound(result.totalTime, 2)
                 , decimalRound(result.nonOwnTime, 2)
@@ -1044,7 +1067,6 @@ function DefaultProfilerView(parentId)
                 , decimalRound(result.averageTime, 2)
                 , decimalRound(result.averageOwnTime, 2) ]
                 , { border: 'solid 1px #cdc', padding: '.2em' });
-            resultRow.title = result.functionTrace.join('.');
             resultsTbody.appendChild(resultRow);
         }
     };
@@ -1288,7 +1310,8 @@ function DefaultProfilerView(parentId)
             logLevelOption.value = label;
             logLevelOption.appendChild(document.createTextNode(label));
             logLevelSelect.appendChild(logLevelOption);
-            if (label == 'WARN') {
+            // select this level by default
+            if (label == 'INFO') {
                 logLevelSelect.selectedIndex = i;
             }
             ++i;

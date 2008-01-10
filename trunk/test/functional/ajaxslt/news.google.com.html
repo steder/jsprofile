@@ -1,5 +1,5 @@
 <html>
-<head><title>Google News</title><meta http-equiv="content-type" content="text/html; charset=UTF-8"><meta http-equiv="refresh" content="900"><meta http-equiv="Cache-Control" content="no-cache"><meta http-equiv="Pragma" content="no-cache"><meta name="Expires" content="Fri, 01 Jan 1990 00:00:00 GMT"><meta name="DateInSecsSinceEpoch" content="1189552023"><style><!--#gbar{float:left;height:22px}
+<head><title>Google News</title><meta http-equiv="content-type" content="text/html; charset=UTF-8"><meta http-equiv="Cache-Control" content="no-cache"><meta http-equiv="Pragma" content="no-cache"><meta name="Expires" content="Fri, 01 Jan 1990 00:00:00 GMT"><meta name="DateInSecsSinceEpoch" content="1189552023"><style><!--#gbar{float:left;height:22px}
 #gbarl{border-top:1px solid #c9d7f1;font-size:0;height:1px;position:absolute;right:0;top:24px;width:110%}
 #gbar a{color:#00c}
 #gbar .gbard{background:#fff;border:1px solid;border-color:#c9d7f1 #36c #36c #a2bae7;display:none;font-size:13px;position:absolute;top:24px;z-index:1000}
@@ -44,7 +44,7 @@ a:active{color:#f00}
 <script>
 var context = new ExprContext(document);
 context.setCaseInsensitive(true);
-//context.setIgnoreAttributesWithoutValue(true);
+context.setIgnoreAttributesWithoutValue(true);
 var xpath = "//td[descendant::a[@class='ks' and font[starts-with(text(), 'Sci/Tech')]]]/descendant::div[@class='lh'][2]/descendant::nobr";
 var xpathObj = xpathParse(xpath);
 
