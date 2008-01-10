@@ -40,7 +40,7 @@ function testProfiler__lazyParse()
 
 
 
-function testProfiler__getFunctionTuples()
+function testProfiler__getAllFunctions()
 {
     var profiler = new Profiler();
     
@@ -51,67 +51,41 @@ function testProfiler__getFunctionTuples()
         f1  : f1
         , f2: f2
     };
-    profiler._getFunctionTuples(object);
-    assertTrue(are_equal(
-        [ { functionTrace: [ 'f1' ]
-            , parentObject: object
-            , originalFunction: f1 }
-        , { functionTrace: [ 'f2' ]
-            , parentObject: object
-            , originalFunction: f2 } ]
-        , profiler.functionTuples
-    ));
+    var allFunctions = profiler._getAllFunctions(object);
+    assertEquals(2, allFunctions.length);
+    var fi1 = allFunctions[0];
+    var fi2 = allFunctions[1];
+    assertEquals('f1', fi1.getTraceAsString());
+    assertEquals(object, fi1.parentObject);
+    assertEquals(f1, fi1.originalFunction);
+    assertEquals('f2', fi2.getTraceAsString());
+    assertEquals(object, fi2.parentObject);
+    assertEquals(f2, fi2.originalFunction);
     
     // nested object test
     var f3 = function() { return 3; };
     object.o1 = {
         f3: f3
     };
-    profiler._getFunctionTuples(object);
-    assertTrue(are_equal(
-        [ { functionTrace: [ 'f1' ]
-            , parentObject: object
-            , originalFunction: f1 }
-        , { functionTrace: [ 'f2' ]
-            , parentObject: object
-            , originalFunction: f2 }
-        , { functionTrace: [ 'o1', 'f3' ]
-            , parentObject: object.o1
-            , originalFunction: f3 } ]
-        , profiler.functionTuples
-    ));
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(3, allFunctions.length);
+    var fi3 = allFunctions[2];
+    assertEquals('o1.f3', fi3.getTraceAsString());
+    assertEquals(object.o1, fi3.parentObject);
+    assertEquals(f3, fi3.originalFunction);
     
     // test circularly linked objects and duplicate references
     object.o2 = object;
     object.f4 = object.f1;
-    profiler._getFunctionTuples(object);
-    assertTrue(are_equal(
-        [ { functionTrace: [ 'f1' ]
-            , parentObject: object
-            , originalFunction: f1 }
-        , { functionTrace: [ 'f2' ]
-            , parentObject: object
-            , originalFunction: f2 }
-        , { functionTrace: [ 'o1', 'f3' ]
-            , parentObject: object.o1
-            , originalFunction: f3 } ]
-        , profiler.functionTuples, 3
-        // specified max depth to avoid infinite recursion
-    ));
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(3, allFunctions.length);
     
     // test excluded objects aren't included
     profiler.excludedObjects = [ object.o1 ];
-    profiler._getFunctionTuples(object);
-    assertTrue(are_equal(
-        [ { functionTrace: [ 'f1' ]
-            , parentObject: object
-            , originalFunction: f1 }
-        , { functionTrace: [ 'f2' ]
-            , parentObject: object
-            , originalFunction: f2 } ]
-        , profiler.functionTuples, 3
-        // specified max depth to avoid infinite recursion
-    ));
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(2, allFunctions.length);
+    assertEquals('f1', allFunctions[0].getTraceAsString());
+    assertEquals('f2', allFunctions[1].getTraceAsString());
     
     // test prototype functions
     function SomeObject() {
@@ -119,27 +93,28 @@ function testProfiler__getFunctionTuples()
     }
     var f5 = function() { return 5; };
     SomeObject.prototype.f5 = f5;
-    profiler._getFunctionTuples(SomeObject);
-    assertTrue(are_equal(
-        [ { functionTrace: [ 'prototype', 'f5' ]
-            , parentObject: SomeObject.prototype
-            , originalFunction: f5 } ]
-        , profiler.functionTuples
-    ));
+    allFunctions = profiler._getAllFunctions(SomeObject);
+    assertEquals(1, allFunctions.length);
+    fi1 = allFunctions[0];
+    assertEquals('prototype.f5', fi1.getTraceAsString());
+    assertEquals(SomeObject.prototype, fi1.parentObject);
+    assertEquals(f5, fi1.originalFunction);
+    
     object.o3 = new SomeObject();
-    profiler._getFunctionTuples(object);
-    assertTrue(are_equal(
-        [ { functionTrace: [ 'f1' ]
-            , parentObject: object
-            , originalFunction: f1 }
-        , { functionTrace: [ 'f2' ]
-            , parentObject: object
-            , originalFunction: f2 }
-        , { functionTrace: [ 'o3', 'f5' ]
-            , parentObject: SomeObject.prototype
-            , originalFunction: f5 } ]
-        , profiler.functionTuples, 3
-    ));
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(3, allFunctions.length);
+    fi1 = allFunctions[0];
+    fi2 = allFunctions[1];
+    fi3 = allFunctions[2];
+    assertEquals('f1', fi1.getTraceAsString());
+    assertEquals(object, fi1.parentObject);
+    assertEquals(f1, fi1.originalFunction);
+    assertEquals('f2', fi2.getTraceAsString());
+    assertEquals(object, fi2.parentObject);
+    assertEquals(f2, fi2.originalFunction);
+    assertEquals('o3.f5', fi3.getTraceAsString());
+    assertEquals(object.o3, fi3.parentObject);
+    assertEquals(f5, fi3.originalFunction);
 }
 
 
@@ -154,7 +129,7 @@ function testProfiler__decorateFunction()
         f1: function() { return 1; }
     };
     object.f1.foo = 'bar';
-    profiler._decorateFunction([ 'f1' ], object);
+    profiler._decorateFunction(new FunctionInfo([ 'object', 'f1' ], object));
     assertTrue(/_enterProfile/.test(object.f1));
     assertTrue(/_exitProfile/.test(object.f1));
     assertEquals('bar', object.f1.foo);
@@ -206,16 +181,14 @@ function testProfiler__decorateAllFunctions()
     };
     profiler._decorateAllFunctions(object);
     
-    for (var i = 0; i < profiler.functionTuples.length; ++i) {
-        var functionTuple = profiler.functionTuples[i];
-        var functionTrace = functionTuple.functionTrace;
-        var functionName = functionTrace[functionTrace.length-1];
-        if (functionName != 'f1' && functionName != 'f2') {
+    assertEquals(2, profiler.decoratedFunctions.length);
+    for (var i = 0; i < profiler.decoratedFunctions.length; ++i) {
+        var functionInfo = profiler.decoratedFunctions[i];
+        if (functionInfo.getName() != 'f1' && functionInfo.getName() != 'f2') {
             fail('non-function was decorated!');
         }
-        assertNotUndefined(functionTuple.originalFunction);
+        assertNotUndefined(functionInfo.originalFunction);
     }
-    assertTrue(profiler.functionsAreDecorated);
 }
 
 
@@ -233,7 +206,7 @@ function testProfiler__undecorateAllFunctions()
     assertFalse(/_enterProfile/.test(object.f1));
     assertFalse(/_exitProfile/.test(object.f1));
     assertTrue(/return 1;/.test(object.f1));
-    assertEquals(0, profiler.functionTuples.length);
+    assertEquals(0, profiler.decoratedFunctions.length);
 }
 
 
@@ -276,7 +249,7 @@ function testProfiler_getProfileData()
     var someObjectProfileData = profileData[2];
     var f3ProfileData = profileData[3];
     
-    assertEquals('f1', f1ProfileData.functionName);
+    assertEquals('f1', f1ProfileData.functionInfo.getName());
     assertEquals(100, f1ProfileData.callCount);
     assertTrue(f1ProfileData.nonOwnTime > 0);
     assertTrue(f1ProfileData.ownTime > 0);
@@ -284,7 +257,7 @@ function testProfiler_getProfileData()
     assertTrue(f1ProfileData.averageOwnTime > 0);
     assertTrue(f1ProfileData.averageTime > f1ProfileData.averageOwnTime);
     
-    assertEquals('f2', f2ProfileData.functionName);
+    assertEquals('f2', f2ProfileData.functionInfo.getName());
     assertEquals(5000, f2ProfileData.callCount);
     assertTrue(f2ProfileData.nonOwnTime == 0);
     assertTrue(f2ProfileData.ownTime > 0);
@@ -292,10 +265,10 @@ function testProfiler_getProfileData()
     assertTrue(f2ProfileData.averageOwnTime > 0);
     assertTrue(f2ProfileData.averageTime == f2ProfileData.averageOwnTime);
 
-    assertEquals('SomeObject', someObjectProfileData.functionName);
+    assertEquals('SomeObject', someObjectProfileData.functionInfo.getName());
     assertEquals(1, someObjectProfileData.callCount);
     
-    assertEquals('f3', f3ProfileData.functionName);
+    assertEquals('f3', f3ProfileData.functionInfo.getName());
     assertEquals(100, f3ProfileData.callCount);
 }
 
