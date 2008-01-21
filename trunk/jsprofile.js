@@ -364,13 +364,6 @@ function isNativeCode(object)
 
 
 
-function isDecoratedForProfiling(object)
-{
-    return /_enterProfile/.test(object) && /_exitProfile/.test(object);
-}
-
-
-
 //******************************************************************************
 // The FunctionInfo object stores all known information about a function.
 
@@ -444,6 +437,16 @@ function ProfileData(functionInfo)
 function Profiler()
 {
     /**
+     * The profiler can run in different modes, which determine which functions
+     * are profiled. If profiling the functions attached to the window object,
+     * the Profiler.MODE_PROFILE_EVERYTHING mode should be set (it is by
+     * default).
+     */
+    this.setMode = function(mode) {
+        this._mode = mode;
+    };
+    
+    /**
      * Main entrypoint into this library. Note that new functions that are
      * dynamically added to objects subsequent to a call to start() are NOT
      * individually profiled.
@@ -452,35 +455,46 @@ function Profiler()
         if (this.getState() == Profiler.STATE_NEW) {
             this._setState(Profiler.STATE_INITIALIZING);
             var self = this;
-            // we get the script contents using AJAX; thus for this to work 
-            // they probably must be on a webserver, i.e. not accessed via the
-            // file:// protocol.
-            var variableNames = [];
-            var callback = function(scriptContents) {
-                for (var i = 0; i < scriptContents.length; ++i) {
-                    var possibleNames =
-                        self._lazyParse(scriptContents[i]);
-                    for (var j = 0; j < possibleNames.length; ++j) {
-                        var possibleName = possibleNames[j];
-                        if (window[possibleName]) {
-                            variableNames.push(possibleName);
+            if (this._mode == Profiler.MODE_PROFILE_EVERYTHING) {
+                // we get the script contents using AJAX; thus for this to work 
+                // they probably must be on a webserver, i.e. not accessed via
+                // the file:// protocol.
+                var variableNames = [];
+                var callback = function(scriptContents) {
+                    for (var i = 0; i < scriptContents.length; ++i) {
+                        var possibleNames =
+                            self._lazyParse(scriptContents[i]);
+                        for (var j = 0; j < possibleNames.length; ++j) {
+                            var possibleName = possibleNames[j];
+                            if (window[possibleName]) {
+                                variableNames.push(possibleName);
+                            }
                         }
                     }
+                    self.logger.debug('Found window-scoped variables: '
+                        + variableNames.join(', '));
+                    setTimeout(function() {
+                        self._decorateAllFunctions(window, variableNames);
+                        self._setState(Profiler.STATE_RUNNING);
+                    }, 1);
+                };
+                try {
+                    scriptLoader = new ScriptLoader(callback);
                 }
-                self.logger.debug('Found window-scoped variables: '
-                    + variableNames.join(', '));
+                catch (e) {
+                    this.logger.error('Could not load scripts: '
+                        + (e.message ? e.message : e));
+                    this._setState(Profiler.STATE_NEW);
+                }
+            }
+            else { // Profiler.MODE_PROFILE_SELECTED_OBJECTS
                 setTimeout(function() {
-                    self._decorateAllFunctions(window, variableNames);
+                    for (var i = 0; i < self._selectedObjects.length; ++i) {
+                        var selectedObject = self._selectedObjects[i];
+                        self._decorateAllFunctions(selectedObject);
+                    }
                     self._setState(Profiler.STATE_RUNNING);
                 }, 1);
-            };
-            try {
-                scriptLoader = new ScriptLoader(callback);
-            }
-            catch (e) {
-                this.logger.error('Could not load scripts: '
-                    + (e.message ? e.message : e));
-                this._setState(Profiler.STATE_NEW);
             }
         }
         else if (this.getState() == Profiler.STATE_STOPPED) {
@@ -542,6 +556,22 @@ function Profiler()
     };
     
     /**
+     * Adds an object for profiling. All functions attached to the object and
+     * its descendant objects will be considered for profiling if the profiler
+     * mode is Profiler.MODE_PROFILE_SELECTED_OBJECTS .
+     */
+    this.addSelectedObject = function(selectedObject) {
+        this._selectedObjects.push(selectedObject);
+    };
+    
+    /**
+     * Clears the list of selected objects.
+     */
+    this.clearSelectedObjects = function() {
+        this._selectedObjects = [];
+    };
+    
+    /**
      * Sometimes you might want to exclude functions from being profiled, such
      * as when their run times are dwarfed by the run time for the profile
      * entry and exit code, or when the function actually manipulates the
@@ -580,7 +610,7 @@ function Profiler()
         this.state = newState;
         for (var i = 0; i < this.stateListeners.length; ++i) {
             try {
-                this.stateListeners[i].handleProfilerStateUpdate();
+                this.stateListeners[i].handleProfilerStateUpdate(this);
             }
             catch (e) {
                 this.logger.warn('Caught exception when '
@@ -755,11 +785,6 @@ function Profiler()
                                     + prop);
                                 continue;
                             }
-                            // don't include functions that are already
-                            // decorated
-                            if (isDecoratedForProfiling(childObject)) {
-                                continue;
-                            }
                             // don't include functions that are explicitly
                             // excluded
                             for (var j = 0; j < excludedFunctions.length; ++j) {
@@ -798,6 +823,13 @@ function Profiler()
             markedObjects[i].markedAsAlreadySeen = undefined;
         }
         return functions;
+    };
+    
+    /**
+     * Performs a simple check to see if a function has been decorated.
+     */
+    this._isDecoratedForProfiling = function(object) {
+        return /_enterProfile/.test(object) && /_exitProfile/.test(object);
     };
     
     /**
@@ -848,7 +880,9 @@ function Profiler()
         var functions = this
             ._getAllFunctions(parentObject, variableNames);
         for (var i = 0; i < functions.length; ++i) {
-            this._decorateFunction(functions[i]);
+            if (!this._isDecoratedForProfiling(functions[i])) {
+                this._decorateFunction(functions[i]);
+            }
         }
     };
     
@@ -918,10 +952,16 @@ function Profiler()
         this.logger = new Profiler.DefaultLogger();
         
         this._setState(Profiler.STATE_NEW);
+        
+        this.setMode(Profiler.MODE_PROFILE_EVERYTHING);
+        this.clearSelectedObjects();
     };
     
     this._init();
 }
+
+Profiler.MODE_PROFILE_EVERYTHING       = 0;
+Profiler.MODE_PROFILE_SELECTED_OBJECTS = 1;
 
 Profiler.STATE_NEW          = 0;
 Profiler.STATE_INITIALIZING = 1;
