@@ -1,0 +1,84 @@
+<html>
+<head>
+<title>jsprofile Usage</title>
+<script src="jsprofile.js"></script>
+</head>
+
+<body>
+<p><span style="font-size: xx-large;">This page will help you get started with using <a href="http://code.google.com/p/jsprofile/">jsprofile</span></a></span>.</p>
+
+<p>The external javascript files will need to be hosted by a web server, as they are fetched with AJAX. If using Apache, configure <code>DocumentRoot</code> to be the parent directory of the directory containing <em>jsprofile.js</em> and this HTML file, and navigate to it via <a href="http://localhost/jsprofile/index.html">http://localhost/jsprofile/index.html</a>. Alternatively, copy the <em>jsprofile</em> directory to somewhere under your <em>htdocs</em>.</p>
+
+<p>The following demonstrates the simplest bare-bones usage of jsprofile with the bundled default profiler view. <code>Start</code> the profiler, click some of the other buttons, then <code>Stop</code> the profiler. Click <code>Show Results</code> to display the results in a tabular format. You can click the header cells of the table to change the sorting.</p>
+
+<div id="div" />
+<script>
+var dpv = new DefaultProfilerView('div');
+</script>
+
+<p>You can run the profiler programmatically too. View the source of this HTML page to see how the following example is implemented. The basic idea is to register an object implementing the profiler state update interface. This object runs the test when the profiler is finished initializing, and stops the profiler. It also manages the results of the profiler when it is stopped. In this example, a dump of the profile data results is displayed, as returned by the <code>getProfileData()</code> method of the <code>Profiler</code> object.</p>
+
+<input type="button" onclick="runProfiler()" value="Run Profiler" />
+
+<script>
+// the functions attached to this object will be decorated for profiling. A
+// subtle thing to note: if the functions call other functions that are not
+// traversable by the object (i.e. they cannot be reached by recursively
+// accessing the properties of the object), those other functions will NOT be
+// profiled. Another thing to note: functions attached to object instances
+// created AFTER functions are decorated will NOT be profiled.
+var object = {
+    _fn: function (value) {
+        return Math.pow(((((value + 530) / 10) - 20) * 6) % 7, 3);
+    }
+    , test: function() {
+        var value = 5;
+        for (var i = 0; i < 5000; ++i) {
+            value = this._fn(value);
+        }
+    }
+};
+
+// using the Profiler object
+function runProfiler()
+{
+    var profiler = new Profiler();
+    profiler.registerStateListener({
+        // this object implements the profiler's state listener interface, and
+        // can thus receive notifications of state changes if registered by the
+        // profiler
+        handleProfilerStateUpdate: function(profiler) {
+            switch(profiler.getState()) {
+                case Profiler.STATE_NEW:
+                    break;
+                case Profiler.STATE_INITIALIZING:
+                    // don't run the test, because the profiler isn't ready yet!
+                    break;
+                case Profiler.STATE_RUNNING:
+                    // here we actually run the test
+                    object.test();
+                    profiler.stop();
+                    break;
+                case Profiler.STATE_STOPPED:
+                    // here, we're going to get the results of the test
+                    var results = profiler.getProfileData();
+                    alert(print_r(results));
+                    break;
+            }
+        }
+    });
+    profiler.setMode(Profiler.MODE_PROFILE_SELECTED_OBJECTS);
+    profiler.addSelectedObject(object);
+    profiler.start();
+}
+</script>
+
+<p>You might also want to try the functional tests:</p>
+
+<ul>
+<li><a href="test/functional/ajaxslt/news.google.com.html">Ajaxslt Functional Test</a></li>
+</ul>
+
+</body>
+
+</html>
