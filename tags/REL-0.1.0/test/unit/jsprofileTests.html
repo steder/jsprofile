@@ -1,0 +1,283 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+
+<html>
+
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>JSProfile Tests</title>
+<link rel="stylesheet" type="text/css" href="../css/jsUnitStyle.css">
+<script language="JavaScript" type="text/javascript" src="../../jsunit/app/jsUnitCore.js"></script>
+<script language="JavaScript" type="text/javascript" src="../../jsprofile.js"></script>
+<script language="JavaScript" type="text/javascript">
+
+function testDecimalRound()
+{
+    assertEquals(6, decimalRound(5.5432, 0));
+    assertEquals(5.5, decimalRound(5.5432, 1));
+    assertEquals(5.54, decimalRound(5.5432, 2));
+    assertEquals(5.43, decimalRound('5.432', 2));
+    assertEquals(5, decimalRound(5, 2));
+}
+
+
+
+function testProfiler__lazyParse()
+{
+    var profiler = new Profiler();
+
+    // simple test
+    var scriptContent = 'function f() { return 1; }; var v = 2;';
+    var referenceObject = [ 'f', 'v' ];
+    assertTrue(are_equal(
+        referenceObject, profiler._lazyParse(scriptContent)));
+        
+    scriptContent += 'var o = { foo: "bar", baz: "qux" };';
+    scriptContent += 'function f2() { this._f = function() { return 3; }; }';
+    referenceObject = [ '_f', 'f', 'f2', 'o', 'v' ];
+    assertTrue(are_equal(
+        referenceObject, profiler._lazyParse(scriptContent)));
+}
+
+
+
+function testProfiler__getAllFunctions()
+{
+    var profiler = new Profiler();
+    
+    // simple test
+    var f1 = function() { return 1; };
+    var f2 = function() { return 2; };
+    var object = {
+        f1  : f1
+        , f2: f2
+    };
+    var allFunctions = profiler._getAllFunctions(object);
+    assertEquals(2, allFunctions.length);
+    var fi1 = allFunctions[0];
+    var fi2 = allFunctions[1];
+    assertEquals('f1', fi1.getTraceAsString());
+    assertEquals(object, fi1.parentObject);
+    assertEquals(f1, fi1.originalFunction);
+    assertEquals('f2', fi2.getTraceAsString());
+    assertEquals(object, fi2.parentObject);
+    assertEquals(f2, fi2.originalFunction);
+    
+    // nested object test
+    var f3 = function() { return 3; };
+    object.o1 = {
+        f3: f3
+    };
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(3, allFunctions.length);
+    var fi3 = allFunctions[2];
+    assertEquals('o1.f3', fi3.getTraceAsString());
+    assertEquals(object.o1, fi3.parentObject);
+    assertEquals(f3, fi3.originalFunction);
+    
+    // test circularly linked objects and duplicate references
+    object.o2 = object;
+    object.f4 = object.f1;
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(3, allFunctions.length);
+    
+    // test excluded objects aren't included
+    profiler.excludedObjects = [ object.o1 ];
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(2, allFunctions.length);
+    assertEquals('f1', allFunctions[0].getTraceAsString());
+    assertEquals('f2', allFunctions[1].getTraceAsString());
+    
+    // test prototype functions
+    function SomeObject() {
+        this.value = 5;
+    }
+    var f5 = function() { return 5; };
+    SomeObject.prototype.f5 = f5;
+    allFunctions = profiler._getAllFunctions(SomeObject);
+    assertEquals(1, allFunctions.length);
+    fi1 = allFunctions[0];
+    assertEquals('prototype.f5', fi1.getTraceAsString());
+    assertEquals(SomeObject.prototype, fi1.parentObject);
+    assertEquals(f5, fi1.originalFunction);
+    
+    object.o3 = new SomeObject();
+    allFunctions = profiler._getAllFunctions(object);
+    assertEquals(3, allFunctions.length);
+    fi1 = allFunctions[0];
+    fi2 = allFunctions[1];
+    fi3 = allFunctions[2];
+    assertEquals('f1', fi1.getTraceAsString());
+    assertEquals(object, fi1.parentObject);
+    assertEquals(f1, fi1.originalFunction);
+    assertEquals('f2', fi2.getTraceAsString());
+    assertEquals(object, fi2.parentObject);
+    assertEquals(f2, fi2.originalFunction);
+    assertEquals('o3.f5', fi3.getTraceAsString());
+    assertEquals(object.o3, fi3.parentObject);
+    assertEquals(f5, fi3.originalFunction);
+}
+
+
+
+function testProfiler__decorateFunction()
+{
+    var profiler = new Profiler();
+
+    // test function is decorated, and properties of original function are
+    // preserved
+    var object = {
+        f1: function() { return 1; }
+    };
+    object.f1.foo = 'bar';
+    profiler._decorateFunction(new FunctionInfo([ 'object', 'f1' ], object));
+    assertTrue(/_enterProfile/.test(object.f1));
+    assertTrue(/_exitProfile/.test(object.f1));
+    assertEquals('bar', object.f1.foo);
+    
+    // test that object prototype functions may access the members of the
+    // object instance. We use _decorateAllFunctions(), but are really testing
+    // the stated _decorateFunction() method.
+    function SomeObject() {
+        this.value = 1;
+        this.re = new RegExp('^foo');
+    }
+    SomeObject.prototype.add = function() { ++this.value; };
+    SomeObject.prototype.test = function(str) { return this.re.test(str); };
+    profiler._decorateAllFunctions(SomeObject);
+    assertTrue(/_enterProfile/.test(SomeObject.prototype.add));
+    assertTrue(/_exitProfile/.test(SomeObject.prototype.add));
+    assertTrue(/_enterProfile/.test(SomeObject.prototype.test));
+    assertTrue(/_exitProfile/.test(SomeObject.prototype.test));
+    var object = new SomeObject();
+    assertTrue(/_enterProfile/.test(object.add));
+    assertTrue(/_exitProfile/.test(object.add));
+    assertTrue(/_enterProfile/.test(object.test));
+    assertTrue(/_exitProfile/.test(object.test));
+    object.add();
+    assertEquals(2, object.value);
+    assertFalse(object.test('bar'))
+    assertTrue(object.test('foobar'));
+}
+
+
+
+function testProfiler__decorateAllFunctions()
+{
+    var profiler = new Profiler();
+    
+    // test profile data capture
+    var object = {
+        f1: function() {
+            var z = 0;
+            for (var i = 0; i < 50; ++i) {
+                z += this.f2(i);
+            }
+            return z;
+        }
+        , f2: function(n) {
+            return parseInt(n * 1.2);
+        }
+        , re: new RegExp('foo')
+    };
+    profiler._decorateAllFunctions(object);
+    
+    assertEquals(2, profiler.decoratedFunctions.length);
+    for (var i = 0; i < profiler.decoratedFunctions.length; ++i) {
+        var functionInfo = profiler.decoratedFunctions[i];
+        if (functionInfo.getName() != 'f1' && functionInfo.getName() != 'f2') {
+            fail('non-function was decorated!');
+        }
+        assertNotUndefined(functionInfo.originalFunction);
+    }
+}
+
+
+
+function testProfiler__undecorateAllFunctions()
+{
+    var profiler = new Profiler();
+
+    // test undecorated function is original
+    var object = {
+        f1: function() { return 1; }
+    };
+    profiler._decorateAllFunctions(object);
+    profiler._undecorateAllFunctions();
+    assertFalse(/_enterProfile/.test(object.f1));
+    assertFalse(/_exitProfile/.test(object.f1));
+    assertTrue(/return 1;/.test(object.f1));
+    assertEquals(0, profiler.decoratedFunctions.length);
+}
+
+
+
+function testProfiler_getProfileData()
+{
+    var profiler = new Profiler();
+    
+    // test profile data capture. A special case we test is for profile data
+    // to be captured for functions on an object's prototype, even if the
+    // instance of the object is created after the function has been decorated
+    // for profiling.
+    var object = {
+        f1: function() {
+            var z = 0;
+            for (var i = 0; i < 50; ++i) {
+                z += this.f2(i);
+            }
+            return z;
+        }
+        , f2: function(n) {
+            return parseInt(n * 1.2);
+        }
+        , SomeObject: function() {}
+    };
+    object.SomeObject.prototype.f3 = function(n) { return n % 2; };
+    profiler._decorateAllFunctions(object);
+    profiler._setState(Profiler.STATE_RUNNING);    // twiddle state
+    object.o1 = new object.SomeObject();
+    var z = 0;
+    for (var i = 0; i < 100; ++i) {
+        z += object.f1() + object.o1.f3(i);
+    }
+    profiler._undecorateAllFunctions(object);
+    
+    var profileData = profiler.getProfileData();
+    //alert(print_r(profileData));
+    var f1ProfileData = profileData[0];
+    var f2ProfileData = profileData[1];
+    var someObjectProfileData = profileData[2];
+    var f3ProfileData = profileData[3];
+    
+    assertEquals('f1', f1ProfileData.functionInfo.getName());
+    assertEquals(100, f1ProfileData.callCount);
+    assertTrue(f1ProfileData.nonOwnTime > 0);
+    assertTrue(f1ProfileData.ownTime > 0);
+    assertTrue(f1ProfileData.totalTime > f1ProfileData.ownTime);
+    assertTrue(f1ProfileData.averageOwnTime > 0);
+    assertTrue(f1ProfileData.averageTime > f1ProfileData.averageOwnTime);
+    
+    assertEquals('f2', f2ProfileData.functionInfo.getName());
+    assertEquals(5000, f2ProfileData.callCount);
+    assertTrue(f2ProfileData.nonOwnTime == 0);
+    assertTrue(f2ProfileData.ownTime > 0);
+    assertTrue(f2ProfileData.totalTime == f2ProfileData.ownTime);
+    assertTrue(f2ProfileData.averageOwnTime > 0);
+    assertTrue(f2ProfileData.averageTime == f2ProfileData.averageOwnTime);
+
+    assertEquals('SomeObject', someObjectProfileData.functionInfo.getName());
+    assertEquals(1, someObjectProfileData.callCount);
+    
+    assertEquals('f3', f3ProfileData.functionInfo.getName());
+    assertEquals(100, f3ProfileData.callCount);
+}
+
+</script>
+</head>
+
+<body>
+<h1>JSProfile Tests</h1>
+<p>This page contains tests for jsProfile. To see them, take a look at the source.</p>
+</body>
+
+</html>
