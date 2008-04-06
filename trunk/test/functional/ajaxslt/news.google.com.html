@@ -63,7 +63,8 @@ a:active{color:#f00}
 <div id="xpathBar" style="margin-bottom: 1em">
     <select id="xpathSelect"></select><br />
     <input id="xpathText" type="text" size="100%"/><br />
-    <input type="button" value="Compute XPath" onclick="computeXPath()"></input>
+    <input type="button" value="Compute XPath" onclick="computeXPath()" />
+    <input type="button" value="Open Window" onclick="openWindow()" />
 </div>
 <div id="dpv"></div>
 
@@ -210,15 +211,19 @@ xpathSelect.onchange();
 
 // create the profiler
 var dpv = new DefaultProfilerView('dpv');
+var win = window;
 
 function computeXPath() {
-    var context = new ExprContext(document);
+    if (win.closed) {
+        win = window;
+    }
+    var context = new ExprContext(win.document);
     context.setCaseInsensitive(true);
     context.setIgnoreAttributesWithoutValue(true);
     var xpathText = document.getElementById('xpathText').value;
     try {
         var xpathObj = xpathParse(xpathText);
-        context.setInPlayAttributes(getAttributeNodeTestNames(xpathObj));
+        context.optimizeFor(xpathObj);
         
         var startTime = new Date();
         var xpathResult = xpathObj.evaluate(context);
@@ -235,6 +240,13 @@ function computeXPath() {
     }
     catch (e) {
         dpv.warn(e.message ? e.message : e);
+    }
+}
+
+function openWindow() {
+    if (win == window || win.closed) {
+        win = window.open('news.google.com.html', 'popup',
+            'resizable=yes, scrollbars=yes, width=600, height=600');
     }
 }
 
