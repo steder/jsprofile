@@ -65,6 +65,7 @@ a:active{color:#f00}
     <input id="xpathText" type="text" size="100%"/><br />
     <input type="button" value="Compute XPath" onclick="computeXPath()" />
     <input type="button" value="Open Window" onclick="openWindow()" />
+    <input id="xpathReturnOnFirstMatch" type="checkbox" />Return on First Match
 </div>
 <div id="dpv"></div>
 
@@ -213,6 +214,77 @@ xpathSelect.onchange();
 var dpv = new DefaultProfilerView('dpv');
 var win = window;
 
+/**
+ * Emulates php's print_r() functionality. Returns a nicely formatted string
+ * representation of an object. Very useful for debugging.
+ *
+ * @param object    the object to dump
+ * @param maxDepth  the maximum depth to recurse into the object. Ellipses will
+ *                  be shown for objects whose depth exceeds the maximum.
+ * @param indent    the string to use for indenting progressively deeper levels
+ *                  of the dump.
+ * @return          a string representing a dump of the object
+ */
+function print_r(object, maxDepth, indent)
+{
+    var parentIndent, attr, str = "";
+    if (arguments.length == 1) {
+        var maxDepth = Number.MAX_VALUE;
+    } else {
+        maxDepth--;
+    }
+    if (arguments.length < 3) {
+        parentIndent = ''
+        var indent = '    ';
+    } else {
+        parentIndent = indent;
+        indent += '    ';
+    }
+
+    switch(typeof(object)) {
+    case 'object':
+        if (object.length != undefined) {
+            if (object.length == 0) {
+                str += "Array ()\r\n";
+            }
+            else {
+                str += "Array (\r\n";
+                for (var i = 0; i < object.length; ++i) {
+                    str += indent + '[' + i + '] => ';
+                    if (maxDepth == 0)
+                        str += "...\r\n";
+                    else
+                        str += print_r(object[i], maxDepth, indent);
+                }
+                str += parentIndent + ")\r\n";
+            }
+        }
+        else {
+            str += "Object (\r\n";
+            for (attr in object) {
+                str += indent + "[" + attr + "] => ";
+                if (maxDepth == 0)
+                    str += "...\r\n";
+                else
+                    str += print_r(object[attr], maxDepth, indent);
+            }
+            str += parentIndent + ")\r\n";
+        }
+        break;
+    case 'boolean':
+        str += (object ? 'true' : 'false') + "\r\n";
+        break;
+    case 'function':
+        str += "Function\r\n";
+        break;
+    default:
+        str += object + "\r\n";
+        break;
+
+    }
+    return str;
+}
+
 function computeXPath() {
     if (win.closed) {
         win = window;
@@ -220,6 +292,8 @@ function computeXPath() {
     var context = new ExprContext(win.document);
     context.setCaseInsensitive(true);
     context.setIgnoreAttributesWithoutValue(true);
+    context.setReturnOnFirstMatch(
+        document.getElementById('xpathReturnOnFirstMatch').checked);
     var xpathText = document.getElementById('xpathText').value;
     try {
         var xpathObj = xpathParse(xpathText);
