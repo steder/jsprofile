@@ -227,19 +227,6 @@ function copyArray(dst, src) {
 }
 
 /**
- * This is an optimization for copying attribute lists in IE. Only those
- * attributes in the given set of names will be copied to the destination list.
- */
-function copyArrayOfNamedAttributes(dst, src, names) {
-  if (!src) return;
-  for (var name in names) {
-    if (src[name]) {
-      dst.push(src[name]);
-    }
-  }
-}
-
-/**
  * This is an optimization for copying attribute lists in IE. IE includes many
  * extraneous properties in its DOM attribute lists, which take require
  * significant extra processing when evaluating attribute steps. With this
@@ -498,64 +485,65 @@ RegExp.escape = (function() {
 })();
 
 /**
- * Traverses a LocationExpr object tree, returning a set of NodeTest names for
- * any attribute steps encountered. This is basically a listing of all unique
- * attribute names referenced in the XPath, and may contain "*". We want to
- * get this from the XPath expression so we can avoid copying unnecessary
- * attributes at evaluation time, because reading the DOM is very expensive in
- * IE.
+ * Determines whether a predicate expression contains a "positional selector".
+ * A positional selector filters nodes from the nodelist input based on their
+ * position within that list. When such selectors are encountered, the
+ * evaluation of the predicate cannot be depth-first, because the positional
+ * selector may be based on the result of evaluating predicates that precede
+ * it.
  */
-function getAttributeNodeTestNames(object, names) {
-  if (names == undefined) {
-    var names = {};
-  }
-  if (typeof(object) == 'object') {
-    if (object.axis == 'attribute') {
-      // the node test name is not defined for the all attributes selector
-      if (object.nodetest.name == undefined) {
-        names['*'] = true;
-      }
-      else {
-        names[object.nodetest.name] = true;
-      }
-    }
-    for (var attr in object) {
-      getAttributeNodeTestNames(object[attr], names);
-    }
-  }
-  return names;
-}
-
-function stepPredicateContainsPositionalSelector(step) {
-  for (var i = 0; i < step.predicate.length; ++i) {
-    var predicate = step.predicate[i];
-    if (predicate.expr instanceof NumberExpr) {
-      // this is an indexing predicate
-      return true;
-    }
-    if (predicateExprContainsPositionalSelector(predicate)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function predicateExprContainsPositionalSelector(predicate) {
-  if (!predicate || !predicate.expr) {
+function predicateExprHasPositionalSelector(expr, isRecursiveCall) {
+  if (!expr) {
     return false;
   }
-  if (predicate.expr instanceof FunctionCallExpr) {
-    var value = predicate.expr.name.value;
+  if (!isRecursiveCall && exprReturnsNumberValue(expr)) {
+    // this is a "proximity position"-based predicate
+    return true;
+  }
+  if (expr instanceof FunctionCallExpr) {
+    var value = expr.name.value;
     return (value == 'last' || value == 'position');
   }
-  if (predicateExprContainsPositionalSelector(predicate.expr.expr1)) {
-    return true;
-  }
-  if (predicateExprContainsPositionalSelector(predicate.expr.expr2)) {
-    return true;
+  if (expr instanceof BinaryExpr) {
+    return (
+      predicateExprHasPositionalSelector(expr.expr1, true) ||
+      predicateExprHasPositionalSelector(expr.expr2, true));
   }
   return false;
 }
 
+function exprReturnsNumberValue(expr) {
+  if (expr instanceof FunctionCallExpr) {
+    var isMember = {
+      last: true
+      , position: true
+      , count: true
+      , 'string-length': true
+      , number: true
+      , sum: true
+      , floor: true
+      , ceiling: true
+      , round: true
+    };
+    return isMember[expr.name.value];
+  }
+  else if (expr instanceof UnaryMinusExpr) {
+    return true;
+  }
+  else if (expr instanceof BinaryExpr) {
+    var isMember = {
+      '+': true
+      , '-': true
+      , '*': true
+      , mod: true
+      , div: true
+    };
+    return isMember[expr.op.value];
+  }
+  else if (expr instanceof NumberExpr) {
+    return true;
+  }
+  return false;
+}
 
 

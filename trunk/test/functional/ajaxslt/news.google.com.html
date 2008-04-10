@@ -297,7 +297,6 @@ function computeXPath() {
     var xpathText = document.getElementById('xpathText').value;
     try {
         var xpathObj = xpathParse(xpathText);
-        context.optimizeFor(xpathObj);
         
         var startTime = new Date();
         var xpathResult = xpathObj.evaluate(context);
