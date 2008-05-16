@@ -329,17 +329,17 @@ function computeXPath() {
     if (win.closed) {
         win = window;
     }
-    var context = new ExprContext(win.document);
-    context.setCaseInsensitive(true);
-    context.setIgnoreAttributesWithoutValue(true);
-    context.setReturnOnFirstMatch(
-        document.getElementById('xpathReturnOnFirstMatch').checked);
     var xpathText = document.getElementById('xpathText').value;
+    var engine = engineSelect.options[engineSelect.selectedIndex].value;
+    var results = [];
     try {
-        var engine = engineSelect.options[engineSelect.selectedIndex].value;
-        var results = [];
         var startTime = new Date();
         if (engine == 'ajaxslt') {
+            var context = new ExprContext(win.document);
+            context.setCaseInsensitive(true);
+            context.setIgnoreAttributesWithoutValue(true);
+            context.setReturnOnFirstMatch(
+                document.getElementById('xpathReturnOnFirstMatch').checked);
             var xpathObj = xpathParse(xpathText);
             var xpathResult = xpathObj.evaluate(context);
             if (xpathResult && xpathResult.value) {
@@ -348,14 +348,14 @@ function computeXPath() {
         }
         else if (engine == 'llamalab' || engine == 'cybozu') {
             // these will use the native engine in browsers that implement
-            // document.evaluate()
-            var r = document.evaluate(xpathText, document, null, 0, null);
+            // document.evaluate(). In other news, it appears that switching
+            // back to llamalab from cybozu doesn't work well.
+            var r = document.evaluate(xpathText, win.document, null, 0, null);
             while (n = r.iterateNext()) {
                 results.push(n);
             }
         }
         var endTime = new Date();
-        
         var msg = 'Computed ' + results.length + ' results in '
             + (endTime - startTime) + 'ms';
         if (results.length > 0) {
