@@ -1,0 +1,1 @@
+This project aims to create a javascript profiler. The primary target is Internet Explorer, as several profilers already exist for Firefox (i.e. Firebug, Venkman). However, it is intended to support as many browsers as possible.
